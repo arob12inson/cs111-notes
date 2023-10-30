@@ -1,0 +1,158 @@
+#+title: Lecture08
+
+* Scheduling (CPU Scheduling)
+- More threads than cores
+- dispatch mechanisms
+- policies
+  - scheduling scale
+    - long term: which processes are allowed in?
+    - medium term: live in ram?
+    - short term: getting a cpu?
+* FCFS
+- 1 CPU + 1 process cueue
+- The scheduler prefrs thread switches over process switches
+  - AAAAA BB CCCCCCCCC DDDD
+  - time between: (context switch) is delta
+  - [ ] check lecture for response time formula AND what the second table is
+  - [ ] lookup the terms!
+| Process | waittime | turnaround | response time |
+| A       |        0 |          5 |               |
+| B       |      4+d |        6+d |               |
+| C       |     5+2d |      14+2d |               |
+| D       |    13+3d |      17+3d |               |
+| avg     | 5.5+1.5d |  10.5+1.5d |               |
+  - another table when running fork()
+| Process | waittime | turnaround | response time |
+| A       |        0 |          5 |             2 |
+| B       |        1 |          2 |             1 |
+| C       |        2 |          9 |             4 |
+| D       |        3 |          4 |             1 |
+- variance: how much waittime & turnaround time can change
+- total useful cpu time/ total cpu time = utilization
+  - 20/20+3d
+- problem: one program can hog, hurting the turnaround time
+* Shortest job first
+- pick shortest job to run first
+- assumes that we know the runtimes in advance (not true in linux!)
+- instead of a queue, you use a **heap**
+- AAAAA BB DDDD CCCCCCCCC
+- abcd (arrivals)
+| process | waittime    |
+| A       | 0           |
+| B       | 4 + d       |
+| C       | 9 + 3d      |
+| d       | 4 + 2d      |
+| average | 4.25 + 1.50 |
+- beats FCFS in waittime, because D waiting for c is replaced with C waiting for D
+- problem: potential for starvation (long processes may never run)
+* preemption + scheduling:
+- time an interrupt to take something out of the cpu
+** Round Robin: FCFS + preemption
+- each process only gets to run for one quantum (in this case, 1 second)
+** TODO Fill out this exercise
+A B A C B
+A B C D
+-------
+A B C D A B C D A C D A C D A CCCCC
+(abcd @ time 0)
+
+| Process | Wait time |
+| A       | 0         |
+| B       | 1 + d     |
+| C       | 2 + 2d    |
+| D       | 3 + 3d    |
+  - avg: 1.5 + 1.5d
+  - Problem: utilization is worse: 20/20+15d
+* RR starvation
+- Rule of thumb: new processes go to the end of the line
+  - could starve verteran programs if new processes come first
+  - [ ] lecture for lab 2 (3:00 pm)
+* Priority scheduling
+- some processes are more important than other processes
+- Priority: also called niceness
+  - higher niceness == lower priority
+- priorities can be:
+  - static vs dynamic
+  - user-assigned vs system-assigned
+  - mixture of both
+- `nice gcc foo.c` will add extra niceness to your process and will run it later
+- `nice -n 1 gcc foo.c` niceness 1
+- `# nice -n -10 gcc foo.c` need root privledges to make a process mean
+- `# renice`
+- [ ] renice
+- [ ] lecture @ 3:10 about types of prority
+- Priority is general
+  - SJF: priority = run time
+  - FCFS priority = arrival time
+- priority = arrival time + niceness + preemption
+** multilevel priority scheduling
+- each category uses a different algorithm
+- ex:
+  - murphy hall algorithms has batch jobs (SJF @ night)
+  - Higher priority faculty jobs running during the day
+  - Admin jobs at the highest priority
+* Priority inversion: A problem
+- Suppose:
+  - 3 threads running on mars rover
+    - Low priority thread (temperature)
+    - High priority thread (pointing antenna to earth )
+    - medium priority thread (ex: today's experiment)
+- problem:
+  - setup: high thread takes over high thread, but high thread needs low priority threads to release a lock
+  - when context switching to get to medium thread, it switches to medium thread, not low thread that needs
+- Fix: make low thread temporarily highest priority (when locks are used
+* Real time scheduling
+- Hard deadlines (ex nuclear power plant)
+  - Predictability trumps performance
+    - eg: disable l2 cache, reduce flakiness of program
+    - no interrupts/traps/signals: using polling instead
+- Soft deadlines (ex video player)
+  - earliest deadline first
+  - rate-monotonic system
+    - [ ] lookup in notes
+- Moral: scheduling is a big messy zoo
+
+* Synchronization
+- Embarassing parallelism:
+  - no thread reads any shared memory that another thread will write
+- classic example of needing "dignified synchronization"
+  #+begin_src c
+    long balance;
+    void deposit(long amt) { balance += amount; }
+    bool withdraw(long amt) { if (amt <= balance)
+                                balance -= ammount;
+                                return true;
+                              return false;
+                                }
+  #+end_src
+  - Assumption: no overflow/negative shenanigans
+  - problem if deposit and withdraws at the same time
+    - if withdraw after deposit reads the balance code
+- Making things atomic:
+  - Have a lock & unlock call
+  #+begin_src c
+    lock_t l;
+    long balance;
+    void deposit(long amt) {
+      lock(&l);
+      balance += amount;
+      unlock(&l);
+    }
+
+    // [ ] where to put locks on this code?
+    bool withdraw(long amt) {
+
+      lock(&l);
+      if (amt <= balance) { //balance write is depended on this line's read
+        balance -= ammount;
+        unlock(&l);
+        return true
+        }
+      return false;
+  #+end_src
+- critical section of code: at most one thread shoudl be executing its instructions
+  - could be global (like above) or local (i.e. inside a class instance)
+- Determinging critical
+  1. writes to shared memory
+  2. look for depended reads
+  3. Keep critical sections as small as possible (for efficiency reasons)

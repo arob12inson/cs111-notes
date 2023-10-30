@@ -1,0 +1,40 @@
+#+title: Disc4: Midterm Review
+
+* Outline
+- moudlarity
+- scheduling
+- fork
+- signal handling
+- device io
+- kernel and user mode
+* Modularity q1
+- Modularity smaller pieces
+- Soft Modularity: easier to implement, requires trust of caller
+- Hard Modularity
+- Does ubunutu use soft or hard modularity?
+  - Kernel mode vs User Mode is hard modularity
+  - Ubuntu graphics is built on top of things, not isolated
+* Processes
+- Context switching, process control blocks
+  - PCB: Backing up a process,
+- COntext switching is pure overhead
+* Scheudling
+- Algorithms
+- Preemptive vs nonpreemptive
+** Question: T2R
+- Utilization increases
+- response time doubles (1 + .5 + 0.25)
+- wait time stays same (yodouble the line, half the turn)
+- Starvation: practically no, technically yes
+* Fork
+- Internally, fork has 2 modes:
+  - Parent calling: creates child process and returns its new pid
+  - Created child calling: doesn't do anything, returns zero
+* Signals
+- IPC transferring bytes between two or more processes
+- SIgnals are only handled in Kernel Mode
+  - One line of code might combine user mode and kernel mode instructions
+** Signal and interrupt
+- Printf is not async safe, could create an error with mallocing
+- **SYNCRONIZATION SAFE IMPORTANCE**
+- [ ] look up signals

@@ -1,0 +1,242 @@
+#+title: Lecture09
+
+* Synchronization
+- We want 2 things:
+  - isolation
+  - sequence
+    - Atomic actions
+* What do we want?
+- `lock incl i`: locks, then increment i
+  - hardware atomicity
+- Loads & stores are not atomic (don't read or write to bits all at once)
+- Software atomicity: make arbitrary code patterns atomic
+  - not everything can be imlemented in hardware
+** Compare-and-swap instruction:
+  - `bool cas(int *addr, int old, int new)`
+    if content of addr == old, return true & set addr to new
+    otherwise, false
+- [ ] review: implementing in c
+  #+begin_src c
+
+void update (int *p) {
+  //*p = f(*p) atomically
+  int old, new;
+  do {
+    int old = *p;
+    int new = f(old);
+  } while (!cas(p, old, new)); // do the block until it succeeds
+}
+
+  #+end_src
+- loads and stores could be non-atomic and it will still work
+- Lets you implement arbitrary updating
+** issues
+- larrge objects (> 8 bytes) still wan't atomic actions
+  - ex: strcpy(buf, "abcdef");
+  - no one assembly instruction can do it
+- Tiny values
+  - struct s { unsigned int a:1; unsigned int b:2; } (one bit/2bit)
+  - Done via byte load, not just the bit changing (ex: a = 1 does a = 0x01);
+  - if one thread updates a & one updates b, the second one overrides
+* Implementing locks
+** typedef ____ lock_t;
+ - void lock(lock_t *l); //grab an exclusive lock on *l;
+ - void unlock(lock_t *l); // release the lock
+ - Preconditions to primitives:
+   - must hold the lock that you are trying to unlock
+     - unlocking a lock you don't have is same as dereferencing a null ptr; bad
+   - cannot lock something you've already locked: undefined
+ - Corollary: unlock quickly
+ - **synchronization = mutual exclusion + bounded wait**
+   - scheduler doesn't know about this stuff, hence priority inversion problems
+** Coding
+Broken example:
+#+begin_src c
+
+void lock (int *p){
+    while(*p) //assume load is atomic
+      continue; // someone can change in between
+    *p = 1;
+}
+
+void unlock (int *p){
+    *p = 0; // stores are atomic
+}
+#+end_src
+fixed example with compare and swap
+#+begin_src c
+
+    while (!cas(p, 0, 1))
+      continue;
+    while (xchgl(p,1) == 1) //means old value was 1, so someone else has the lock
+      continue;
+
+
+#+end_src
+`xchgl` exchange l instruction does the same thing
+#+begin_src c
+  int xchgl(int *p, int v){
+    int old = *p;
+    *p = v;
+    return old;
+    }
+#+end_src
+** Ex with pipe
+#+begin_src c
+    lock_t l;
+    struct pipe{
+        char buf[1024];
+        unsigned r, w;
+      //r points to first byte of data, write points to first unused junk data
+    }
+
+    void write(struct pipe *p, char b){ //single byte writing
+      lock(&l);
+      bool ok = p->w - p->r < 1024; //fails if full: w & r can go above
+      if (ok)
+        p->buf[p->w++ % 1024] = b; // encounters an error if W overflows & not a power of 2
+      unlock(&l);
+      return ok;
+
+#+end_src
+- Problem: very coarse grained lock
+  - single global lock, performance hit
+  - Fine grained lock is perferable
+#+begin_src c
+    struct pipe{
+        char buf[1024];
+        unsigned r, w;
+        lock_t l;
+      //r points to first byte of data, write points to first unused junk data
+    }
+
+    void write(struct pipe *p, char b){ //single byte writing
+      lock(&p->l); //lock per pipe, not application
+      bool ok = p->w - p->r < 1024; //fails if full: w & r can go above
+      if (ok)
+        p->buf[p->w++ % 1024] = b; // encounters an error if W overflows & not a power of 2
+      unlock(&l);
+      return ok;
+
+#+end_src
+ - don't want multiple threads spinning for the same lock
+** Finer grained mutexs
+- 2 locks per pipe, so one thread can write and read
+- Problem: write needs to check reader (dependent read), read needs to check writer (dependent read) to continue forware
+  - Remember: **shared writes** and **dependent reads**
+** Polling issue:
+- spin lock is slow
+- Solution: blocking mutexes
+  - can use spin locks to implement a blocking mutex
+** Blocking mutexes
+#+begin_src c
+
+struct bmutex{
+    lock_t l;
+    bool locked;
+    proc_t *blocked_list;// process table entry
+    }
+
+void acquire (struct bmutex *p){
+    for (;;) {
+        lock(&p->l) //adding to block list is atomic
+        /* add self to block list */
+        if (!p -> locked)
+            break;
+        unlock(&p->l); //if it came after yield, many processes would spin at the lock call
+        yield();
+    }
+    p->locked = true; //signal that you have the lock (to whoever called the aquire() function)
+    unlock(&p->l);
+}
+
+void release(struct bmutex *p){
+
+    lock (&p->l);
+    /* set all processes in the blocked list to be runnable (remove from the block list) */
+    p->locked = false;
+    unlock(&p->l);
+
+}
+
+#+end_src
+- p table has a "next field" we can use to implement a "pipeline" for processes (i.e. which to go to when one fails)
+- Set all processes to be runnabe instead or just first,
+  - might use all if you want waking up threads to come to a mutual agreement
+- semaphore: blocking mutex except allows N > 0 threads to hold the resource
+  - can change boolean locked to an integer
+  - a binary semaphore: true/false
+* Condition variables:
+** Using semaphores/ bmutexes + pipes
+- reading from empty pipe should try to read again, not fail!
+  - does this address wasted cpu time b/c of spinning problem?
+#+begin_src c
+
+struct pipe {
+
+    bmutex b;
+}
+
+void write(struct pipe *p, char b){
+
+    acquire (&p->b);
+    bool ok;
+    // ...
+    // Problem: doesn't solve spinning problem because must still wait for a valid read/write, bmutex only solves spiining for acquiring read/write pointers
+    // didn't solve spinning for valid read/write, need a **conditional variable**
+
+}
+
+#+end_src
+** Condition variable = blocking mutex + condition (in your head)
+- Idea: sleep until a condition becomes true
+*** api
+#+begin_src c
+
+wait (condvar_t *c, bmutex_t *b);
+// Precondition: *b is acquired
+// releases b, then blocks until some other thread notifies
+// reacquires b, then returns
+
+notify(condvar_t *c); // call this whenever the condition may have become true
+    // Must call when has become true, can call if not true yet
+
+broadcast(condvar_t *c) // wakes up ALL threads waiting (using a run queue or something)
+
+#+end_src
+** Redoing pipes with cond vars
+#+begin_src c
+
+struct pipe {
+
+    bmutex b;
+    condvar_t nonfull;
+    condvar_t nonempty;
+    char buf [1024];
+}
+
+
+void write(struct pipe *p, char b){
+
+    acquire (&p->b);
+    start:
+        wait(p->nonfull, p->b); //when wait returns, it might not be true
+        //we don't know if pipe is still not full here
+        if (p->w - p->r == 1024)
+            goto start;
+        p -> buf[p->w++] = c;
+        notify(p->nonempty);
+        release(&p->b);
+}
+
+
+#+end_src
+- we do not spin!
+  - We don't use the go to very often
+* Deadlock
+- 2 threads trying to cooperate, but each acquire a blocking mutex that the other needs
+  - ex: T1 acquires b1 then b2, t2 acquires b2 then b1
+  - Necessary if you are using multiple data structures (i.e bank account a vs bank account b)
+- Lock order:
+  - Assume locks are ordered in some way (i.e. addresses)
+    - every transaction must acquire locks in ascending address order
