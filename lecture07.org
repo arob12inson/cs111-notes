@@ -1,0 +1,142 @@
+#+title: Lecture07
+
+* Agenda
+- Signals
+- threads
+- scheduling
+* Signals
+- [ ] review first 10 minutes of lecture
+- SIGKILL & SIGSTOP cannot be handled/ignored
+** big program with signal handler
+- int f(int x) { // can't be called from signal handler
+    manipulate global structure //this kind of code can't be used in a signal handler
+  }
+#+begin_src c
+//[ ] can this be interrupted????
+int pthread_sigmask(int how, const sigset_t *restrict set, //setting the signal mask
+       sigset_t *restrict oset); //what you want to
+// how = {SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK}
+  //call this before to block signals
+  //call this after to unblock signals
+
+#+end_src
+- Can ignore signals with this
+** Critical sections with signals:
+- We want signals to happen, just not executed during the critical sections
+- Critical sections must be **short** (Don't put an infinite loop in a critical section!)
+** Why not done in malloc
+- speed: pthread_sigmask calls would slow it down
+- have to specify signals to block
+* Threads
+** Processes vs threads
+- processes are more expensive than threads
+- Ex: fork() demonstrates the cost
+  - Fork child = parent, except:
+    - memory (static, heap, stack)
+      - can be lazily copied, but copied nonetheless
+    - Registers
+    - file descriptors
+    - accumulated execution time
+    - [ ] file locks (child has none) (2:30pm in lecture)
+    - [ ] pending signals (child has none) (2:30pm in lecture)
+  - Children and parents are seperate, but seperation is expensive
+- Children & parents can only communicate thru the kernel via system calls
+  - too slow!
+** Threads
+- Like lightweight processes, but share as much as possible
+- Shares:
+  - Memory (not the stack)
+  - file Descriptors
+  - file locks
+  - accumulated execution time (?)
+  - pending singals
+- Doesn't share
+  - registers
+  - the stack
+- Trouble: shared memory creates concurrency errors, even though it is much faster
+- Context switch to go between threads must be done through the kernel
+- Thread descriptors often point to same process descriptor,
+- Threads can look at eachother's stacks
+  - Threads don't work well for untrusted code
+- Signal handling with threads
+  - OS picks random thread to handle OS
+  - other threads can handle signals while one thread is handling a signal
+  - in general: multithreaded programs don't signal handle
+** Thread API
+- [ ] rewatch lecture for pthread usage (highlevel, low level) (2:35pm)
+#+begin_src c
+
+#include <pthread.h>
+int pthread_create(pthread_t *thread, //system dependent type, pointer to where we put pthread ID
+                   pthread_attr_t const *attr, //attributes of the thread we create, realtime thread
+                   void* (*start ) (void *), // pointer to a function that takes a pointer to a function with a pointer argument
+                   void *arg //argument to put inside of void
+                   );
+
+#+end_src
+- Can use `clone()` on linux for low level
+- start function is more like a run function for the program: when the function returns, thread dies
+- C tip: can always asign a generic pointer to a specified thread
+#+begin_src c
+
+int pthread_join(pthread_t tid, void* status); //like waitpit() for threads. pthread_create returns tid
+int pthread_kill(pthread_t tid, int sig); //like KILL() call
+int pthread_cancel(pthread_t tid); //a polite kill, only kill thread at a cancellation points
+//cancellation points are syscalls (like printf)
+
+#+end_src
+- fork in a thread: child only has one thread (parent's thread)
+- exec in a thread: b/c it replaces process, all threads are cancelled w/o warning
+** Aside:
+- Green threads
+- [ ] 2:48 in lecture
+- 2 threads can drop into the kernel at the same time on multiple cores
+  - To avoid race conditions, need a locking system if 2 threads are trying to do the same thing
+* Mechanisms for scheduling
+- Doesn't matter if its threads or processes
+** Scheduler (kernel code)
+- need a FAST scheduler thats somewhat competenet, not a SMART CPU intensive scheduler
+** Cooperative Scheduling
+- simple, but not robust
+- scheduler is not running while the user is running,
+- whenever the program issues a system call, scheduler starts running to see who should run
+- **Programs cooperate by issuing system calls 'regularly'**
+- Problem: assumes processes are cooperative, but some code never makes system calls (holds onto cpu forever)
+** Preemptive scheduling:
+- when we don't trust processes
+- relies on timer interrupt: every so often (ex 10ms), clock on hardware sends signals causing a trap on the CPU
+  - trap into the kernel, like a system call
+  - want a number smaller than the human interaction
+  - if too small, too many timer interrupts handlers slowing down applications
+** How to do I/O
+- busy waiting: thread keeps the CPU while seeing if the device is ready
+  - ex: lecture 1 bootstrapping, asking if disk is ready or not
+- Polling:
+  - give up CPU to other threads while device is doing I/O
+- Blocking:
+  - while I/O is not ready, tell kernel to wait for device and then yield
+  - difference: blocking tells kernel not to run us until device is ready
+    - w/ polling, cpu is ignorant to what is going on
+- use busy waiting or polling b/c in embedded applications, context switching is pointless, busy waiting is quickest
+** Scheduling metrics
+- tells you how good your scheduler is
+- time:
+  1. arrival
+  2. exec (starts execution)
+  3. 1st output
+  4. finish time
+- Names for gaps
+  - 1-2: wait time
+  - 1-3: response
+  - 1-4: latency/turnaround time
+  - 2-4: run/burst
+- Metrics:
+  - average latency (want fairness: every process in system will eventually finish)
+  - average wait time
+  - average response time (interactive)
+  - throughput: # of jobs done per unit of time (productivity from perspective of manager)
+    - at odds w/ other metrics
+    - ex: sacrifice fairness (do easy processes to avoid switching) for
+  - latency: time it takes for your job to finish (productivity from perspective of a worker)
+** Sample policies
+*** First come first serve

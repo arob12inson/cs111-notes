@@ -1,0 +1,192 @@
+#+title: Lecture06
+
+#+begin_src c
+
+p = fork();
+if (p == 0){
+
+}
+
+#+end_src
+
+* An alternative way
+#+begin_src c
+
+int posix_spawnp(
+    pid_t * restrict pid,
+    const char *restrict file,
+    const posixspawnfileactions_t *,
+    const posixspawn,
+    char* const * restrict argv,
+    char* const * restrict envp
+
+)
+
+#+end_src
+** Less orthogonal, more efficient (less cloning)
+** does a fork and an exec, then does things based off of the parameters
+** TODO look up man page for posix_spawnp
+*** [ ] look up what restrict does
+*** [ ] what does restrict do?
+* What can go wrong?
+** File descriptors
+*** using one that is not open
+#+begin_src c
+
+    write(107, buf, 27); //returns -1, errno == EBADF
+
+#+end_src
+*** Leaks: program forgets to close files
+*** Open, but the resources has gone away
+**** Ex: unplugging flashdrive you are accessing from, then writing to that file descriptor
+**** returns -1, errno == eio
+*** Read past EOF
+**** (read returns 0 for EOF)
+**** Catch: reading from the network, no data rn but will be later
+***** Read will hang/blocks, just waits for data
+* Pipes:
+#+begin_src c
+    int pipe(int fd[2]);
+
+#+end_src
+** if fd = [5, 7], then read end is 5 and write is 7
+*** Has a bounded buffer, 5 points to begging of used end, 7 points to beginning of unused end of 5 KiB
+** reading from empty pipe: read hangs
+** what can go wrong with pipes?
+*** any fd wrongness
+**** read but no data in the pipe
+**** ^^^ & no writers to the pipe
+***** Implies no process has pipe[1] open anymore
+***** cannot happen when pipe is created, only happens when you close it and everybody else doesn't get the memo
+***** If no writers left & read is empty, we treat it as EOF
+**** Ex:
+#+begin_src c
+
+$du | sort -n
+
+    sort is going to issue a read before du sorts a write (because du is slow)
+    we don't want sort to return 0
+
+    example of reader with no writers to the pipe
+
+$ true | sort -n
+
+    ex of reading but no writers to the pipe
+
+#+end_src
+*** write to a pipe but no readers
+**** Like writing to an unplugged device
+***** Method A: returns -1, errno == ESPIPE
+****** Problem: can chew up CPU time because we often don't error check WRITES: an infinite loop calling 'printf'
+***** Method B: send SIGPIPE to the program
+****** defaults to program dying when it can't write
+****** Problem: can now crash at seemingly random times
+******* Solution: signal handler or use method A
+*** TODO 3rd pipe
+** Fd's exist in the kernel, cannot be modified directly in user mode
+** Read end shennanigans:
+$ cat a | (grep b & uniq)
+- one read and one write FD, grep and uniq are competing
+  - Not I
+- (cat a & grep b c) | uniq
+  - uniq reads whatever is coming first
+  - since cat and grep run concurrently,
+** TODO review pipes in the lecture
+* Grep Example:
+- $ grep abc foo:
+  - has a bug with the communication stratey to put the color scheme
+  - grep --color=always abc foo | od -tcx1
+    - puts an escape sequence to give it a color
+  - Has a bug when typing C-c: in the middle of the output
+    - grep needs to be able to output some small set of escape characters before exiting
+- fixing: have to use signals
+* Signals
+** Alternatives
+- signals are usually messy
+- 1a) /proc/self/controlC (special file) (process has own controlC)
+  - read either succeeds reading the one C-c byte or hanging
+- 2a) Read fails ro returns -1
+  - Won't hang, but your program slows down b/c it is checking the proc/self/controlC constantly
+  - Like a child saying "are we there yet???"
+- 3) little/no overhead until the bad event happens (the signal)
+** Application areads for signals
+- Unusual/rare Events
+  - Power loss
+  - user interrupt
+    - C-c SIGINT,
+    - kill -9 pid SIGKILL,
+    - C-z SIGTSTP terminal stop [suspend]
+    - SIGSTOP
+      - SIGTSTP vs SIGSTOP
+    - kill -USR1 27 SIGUSR1 (what does this do?)
+    - SIGCONT: resuming a process that was stopped
+  - I/O
+    - SIGPIPE: writing to a pipe with no readers
+    - SIGIO: when devices are ready for IO
+  - A child died (SIGCHLD)
+    - call a waitpid to look for its tombstone
+    - [ ] what does wait pid do?
+  - User went away (SIGHUP)
+  - timer expires (SIGALARM)
+    - alarm(100);
+  - Invalid program
+    - SIGSEGV vs SIGBUS
+    - SIGFPE floating point exception (dividing by 0) (integers too)
+    - SIGILL: Illegal instruction
+      - `load %cr3 %rax` is an example
+- kernel sends process a signal
+** What happens when a signal arrives
+- can send a signal with `kill` system call
+- Possibilities:
+  - 0) nothing
+  - 1) process exits immediately (exit status is 128 + signal number)
+  - 1a) Process stops (SIGSTOP, SIGTSTP)
+  - 0-1a is the default for many signals
+  - 2a) Calls a signal handler (in user mode)
+    - sets PC to signal handler
+** Signal Handler
+*** Processor point of view
+- SYSCALL (read)
+- specifies where to find signal handler with the signal system call
+*** Kernel
+- processes the signal
+- Changes return to signal handler for corresponding signal
+*** 'signal' signal handler
+#+begin_src c
+
+typedef void(*signalhandler_t) (int);
+signalhandler_t signal(int signo, sighandler_t handler);
+
+//in use:
+void handle_control_c(int sig) {
+    write(1, "033[0m", 4);
+    _exit(3);
+}
+
+int main (int argc, char**){
+  signal(SIGINT, handle_control_c);
+  signal(SIGPWR, handle_control_c);
+  //....
+}
+
+
+
+#+end_src
+- Problem: signals can occur between any pair of instructions in your machine, not just at system calls,
+  - Ex:
+#+begin_src c
+
+//Need abc + def = a constant, never change
+
+    abc++;
+//Handle_control_c called here, assumption that abc + def isn't true
+    def--;
+
+void handle_control_c (int sig){
+  malloc(6); //Shouldn't do this, your memory assumptions aren't true!
+}
+#+end_src
+ - malloc is not Async-signal-safe function call
+   - most functions are not safe by default
+   - _exit, write, signal are safe
+   - async-signal-safe functions can be called inside of a function handler

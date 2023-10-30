@@ -1,0 +1,181 @@
+#+title: Lecture05
+
+* virtualization
+** apps not protected from kernel
+** infinite loops in apps
+** One way barrier: one kernel deals with all of these apps
+* Process (single threaded processes)
+** Each process "runs" atop a virtual machine
+*** instead of "runs", we say that it is "runnable"
+*** what it can do:
+- System calls
+  - which syscalls?
+  - What do these syscalls do?
+  - More syscalls = more complexity, more backdoors
+- Ordinary instructions
+*** Orthogonality in our system calls:
+**** need to manage other processes, files, network connections
+**** goal: we want independent choices
+***** i.e) if we want to handle files, it should not affect the network connections & other processes
+* Orthogonality
+** Earlier OS
+*** Multifices (complex) -> unix
+*** Unix became complex, became linux (simple system calls)
+*** now, linux is getting old and hairy
+** System calls:
+*** Open/Close family
+**** Open returns a file descriptor
+*** read/write family
+*** Both of above work for storage and network (stream files)
+*** lseek: talks to a storage device
+- `lseek(fd, offset, when);`
+- Doesn't make sense with the context of a different
+- Not orthogonal: choice of where you're reading from is not independent from the system call
+- Goal: we want apis to work with files, networks and other processes!
+* Other processes & system calls
+** Process table:
+*** When you open, you create a new entry into the process table
+*** Process table has pid and a file descriptor for where the code is at
+*** TODO `ulimit -a` what does this command do?
+**** returns maximum number of files & processes you can have at a time
+* Creating a process in linux:
+#+begin_src c
+typedef int pid;
+pid_t fork(void); //pid is an unsigned integer
+#+end_src
+** Has creates 2 copies of the same process ("clones current process")
+** Fork returns one of 3 values:
+- returns -1 if didn't create a fork (OS lacks resources)
+- returns 0 if you are the child process
+- returns the child's PID
+* Deallocating a process
+#+begin_src c
+_Noreturn void _exit(int exitStatus); //how to end a process | Noreturn is keyword meaning a func should never have a return value
+#+end_src
+** why _exit?
+*** the regular exit() runs some cleanup, flushing output buffers, arrange for functions to be called on exit
+*** _exit() doesn't do this,
+*** _exit() is a system call, exit() is a user call
+*** TODO _Exit system call
+**** same as the _exit()
+*** might call _exit() if you think cleanup functions will cause some trouble
+* Kiling process
+#+begin_src c
+int kill (int sig, pid_t p); //Essentially ends another process, returns the success
+#+end_src
+** Killing and _exiting doesn't deallocate the process!
+*** Has to remember the exit status of a process, saved in the process table
+** try another thing
+#+begin_src c
+kill(getpid(), SIGKILL);
+#+end_src
+*** tells the process to kill itself
+*** By definition, it cannot return whether it worked or not
+* Deallocating a process
+#+begin_src c
+pid_t waitpid(pid_t pid, int *status, int options);
+
+pid_t p = fork();
+if (p <= 0){...}
+else {... int st; waitpid(p, &st, 0)}
+#+end_src
+** TODO what does the status do?
+** Use wait pid for parent process to wait for the child to exit
+*** Reasoning: parent and child runs at the same time
+*** parent is off memory
+** Rule: you can only wait for one of your own immediate children
+*** Avoid double waiting loops
+*** `getppid()` gets parent processs id
+**** Process Id table has a table saying what the parent's process ID
+**** Process #1 is the great common ancestor, first process on booting
+** Orphan processes:
+*** orphan processes will get placed under process 1's process
+** More
+#+begin_src c
+waitpid(-1, &st, WNOHANG);
+#+end_src
+*** -1 means "wait for any of my children"
+*** WNOHANG tells PID not to wait
+** Zombie process:
+*** Dead, stopped running, exited, but still on the process table
+*** Reaping: getting rid of the zombie processes
+* WAITPID example: running
+#+begin_src c
+void printdate(void) {
+    pid_t p = fork();
+    if (p<0) {
+        error;
+    }
+    if (p==0) {
+        execvp("/usr/bin/date", (char *[]){"date", NULL}); //deletes current process and starts a new process in the context of the process calling execvp
+        //if execvp returns, that means it failed
+        //TODO figure out what the char thing does:
+            // Maybe: char of pointers to chars, first is "date", the second is NULL
+        error();
+    }
+    int st;
+    if (waitpid(p, &st, 0) < 0) { //waiting for date to exit, then checking if it ran correctly
+        error();
+    }
+    if (!WIFEXITED(st) || WEXITSTATUS(st) != 0{
+        error();
+    }
+}
+#+end_src
+** Fork: new process dont change the program
+*** Only change: `%rax` has a different value from fork
+*** Clones:
+**** file descriptors (same I/O)
+**** memory
+**** registers (except rax)
+** Execvp: change the program don't change the process
+* processes run in isolation
+** Problem: processes cannot communicate with eachother
+** exceptions:
+*** waitpid:
+*** kill: sends a signal to another process
+*** read/write to file
+**** TODO How?
+*** shared memory
+**** Can both write to the same physical piece of ram
+**** look for shm* call
+**** shared memory is troublesome!
+*** Pipes
+*** network connections (sockets)
+*** covert channels: communicating information to antoher process through firewalls
+#+begin_src c
+if (b) {while(fork()) continue;} else {}
+#+end_src
+**** Writes a fork bomb, lets you communicate to the different bits
+***** TODO Huh???
+* Model OS Resources in User programs
+** Pointer to a piece of storage
+** TODO review this
+** Class file & class process
+** problem: application can follow pointer to the file, overwriting and causing havoc
+** Solution: handles
+*** Opaque identifier for an object
+*** Ex: file descriptor in a linux program
+#+begin_src c
+int fd = open("abc", O_RDONLY);
+
+fchdir(fd); //change to abc directory
+#+end_src
+*** Have to crack into the kernel in order to do things, so kernel is protector
+*** this forces you to do system calls
+* File redirection
+** want to do the C equivalent of running ./a.out <a >b 2>&1
+#+begin_src c
+p = fork();
+if (p == 0){
+    //rearrange stdinput by changing file descriptors
+    int f = open("a", O_RDONLY);
+    if (dup2(f, 0) < 0) error(); // make fd 0 (stdin) a duplicate of f
+    if (f != 0) close(f);
+    if(dup2(1,2) < 0) error(); //makes stderr = stdout
+
+    execlp("./a.out", ....)
+}
+#+end_src
+* Pipe
+** pip (fd)=

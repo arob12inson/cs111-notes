@@ -1,0 +1,82 @@
+#+title: Dis1
+
+* Agenda
+- Lab1: Develop the pipe operator
+* Lab 1:
+- Goal: Implement pipe operator
+- Pipe is a cache for output of one process to be fed in as input to another function
+- Shell command review:
+  - wc: word count
+    - -l, -w, -m, -c, -L
+    - For lab, don't need to implement this
+  - ls: list contents
+    - -a: file scount
+    - [ ] look at slides for the rest of flags
+** pipe ls cat wc should give same output as ls | cat | wc
+** More shell operators
+*** ls | cat > dog
+**** Cat the ls, put it in the file dog
+**** Note: dog is ncluded in ls, could indicate that the shell parses the full command first instead of making dog on the fly
+*** <
+**** Take in the input
+*** If no pipe, where does it I/O from?
+**** Answer: 0 is stdin, keyboard
+**** 1 is stdout, terminal screen
+* Lab 1 breakdown:
+** 3 Sub Components
+*** 1. Run a program represented by arguments
+*** 2. Manage the pipe's temporal dependencies: Execute in order
+*** 3. Creating pipe to connect them
+* Step 1: Reading in the arguments
+** Note: arg[0] is the executable name, **NOT AN ARGUMENT**
+*** Program should be able to handle at least 8 arguments
+** Test incrementally
+* Executing:
+** Executing code
+#+begin_src C
+execlp("busybox", "ls", "-a", "-l", NULL);
+//The caller of this function will get replaced by the thread called by execlp
+//busy box is a binary that wraps common binaries
+//can replace busybox with ls
+
+#+end_src
+** Fork API: Creating a new Process
+*** creating a fork: current process split into parent & a deep-copied child
+#+begin_src c
+int i =1, j=2;
+int res = fork();
+//child process: has i, j, anbd res = 0
+// parent process: has i, j, and res = pid =/= 0
+#+end_src
+*** Res will change to negative number if child returns an error
+*** Heigherarchical processing
+**** Note: by default, child vs parent execution order is undeterministic
+***** Each process has the same priority by default
+**** To overcome: tell parent to wait for the child to finish
+#+begin_src C
+waitpid(pid, &status, 0); //what does the 0 do?
+WEXITSTATUS(status); //What does this do?
+#+end_src
+**** Use error macros WIF... to handle naughty children
+* Writing to the file system: Basic piping
+#+begin_src c
+int fds[2];
+pipe(fds); //creates a pipe of 2 ends
+
+//child's code
+write(fds[1], "Hello, parent", 14);
+//file descriptor (number representing a file), buffer, bytes to write
+#+end_src
+** Note: If the child is asleep while the parent finishes, it will abandon the child
+** It is safe for the child to sleep before it starts modifying the pipe
+*** Don't rely on this!!!!
+** When you replace child process, the parent process doesn't get memo that you updated stdin/stdout
+*** Zombie process: Doesn't do anything, can't be killed
+*** orphan process: can't be killed
+*** Note: These are not mutually exclusive
+* Updating stdin for a parent
+** dup2 or duplicate
+#+begin_src c
+dup2(fd, STDOUT_FILEND)
+#+end_src
+*** to figure out: how to get dup2 to get input/output into the pipe

@@ -1,0 +1,31 @@
+#+title: Disc04
+
+* Algorithms
+1. FCFS: Lower response, starvation
+2. sfs: Starvation
+3. Round Robin:
+   - If a process finishes early, a new process is put in (even if quantum is not finished)
+   - quantum's will start when a new process is put in
+   - response: 1st time executed - arrival
+   - wait time: finish time - arrival - burst
+   - burst time: time it gets on cpu to time to execution finishing
+* Contexts switch
+| p1 | p1 | p1 | context switch | p2 | ... |
+- context switch does not count for the quantums
+** Pseudo code:
+while !all_done:
+    //reached end of quantum
+    //dont decrease any p's remaining time
+    // care about queue
+** We assume we still context switch
+* ?
+- len_quant; "median"
+- "median" of active tasks
+- accumulated runtime = Ta = Tburst - Tremaining
+whie :
+    beginning of context switch
+    ta = []
+    sort ta's array
+    get the median
+    for each queue: TA.append(e.Ta)
+    round to even when at tiebreaker

@@ -1,0 +1,130 @@
+#+title: Lecture 3: Modularity and Abstraction
+
+* word Counting program
+main.c:
+#+begin_src c
+void main (void) {
+    char buf[512];
+    int s = 3 * 1024 *1024 /512
+    bool let0 = false;
+    long long = 0;
+    for (;; s++) {
+        for int (i = 0; i < sizeof buf; i++){
+            char c = buf[i], x = ~('a'- 'A')
+            if (!c) goto out;
+            let1 = 'A' <= (c & x) && (c&x) <= 'Z'
+            w += let1 & ~let0;
+            let0 = let1;
+        }
+    }
+    out: write_num(w);
+    for (;;); //Stops execution after we write_num
+}
+#+end_src
+
+** output
+- output needs to be put onto screen
+  - section of RAM that maps to a 25x80 screen
+  - 25 * 80 * 2 bytes
+    - upper byte controls color, blinking, and other features
+    - | color | byte |
+    - 7 for gray
+wn.c:
+#+begin_src c
+wn.c void wrte_num(long long n) {
+    unsigned short *d = (unsigned short * ) 0xb8000; // start of the output buffer
+    d += 25*80/2 + 3; //start in the middle of the screen
+    do {
+        *--d = 7 << 8| n%10 + '0'; //build 2 bytes for output
+    }
+    while (n/=10);
+}
+#+end_src
+** Features we'd like to add
+1. avoid needless duplication of read_sector
+   - firmware has own read sector
+   - con: overhead in terms of maintaining called functions
+   - Con: firmware can't be adapted to operating systems for efficiency, OS agnostic
+   - Memory:
+      |   | our read sector |   | start of EEPROM | fw's r_s | end of EEPROM |
+2. expensive CPU application
+   - assumptions: 1 millisecond to read sector, same to de-encrypt
+   - @ start of program:
+     - CPU is idle when I/O is busy, vice versa
+     - only 50% CPU use time
+     - [ ] write explanation on why this is the case
+   - Solution: double buffering:
+     - cpu alternates between processing b1 & b2
+     - I/O alternates between writing into b1 &
+     - CPu doesn't ask I/O if its ready until it finishes its own task
+3. DMA: Direct memory access
+   - Old: CPU grabs from disk controller, then CPU writes it to RAM
+   - Ideal: CPU sends a command to disk controller, DC writes straight into
+     - Note: why does CPU default to the old?
+4. Multithreading:
+   - want cpu to decrypt and count at the same time
+     #+begin_src c
+    while ((indb(0x1f7) & 0xc0) != 0x40) //if busy
+      schedule(); //let somethign else run, then return
+     #+end_src
+** problems when adding features
+- too much hastle to change all our code
+- too much hastle to share code
+** TODO why?
+- hastle to run in parallel/concurrently
+- Hastle to recover from faults
+* Modularity & Abstraction
+** Modularity:
+- good modularity:
+  - simple boundaries
+  - hard boundaries
+    - Can't "overstep" a module
+- abstraction:
+  - simple & hard boundaries
+  - Make it easy to understand, have an overview
+** bad interface for input
+#+begin_src c
+//lines must be < 1 MiB
+char *readline(void); //allocs memory for line, caller must free
+int readline(char *buf); //Caller allocs buffer, can return error messages
+    // Problem: buffer size is not known
+int readline(char *buf, int bufsize);
+    // Caller could pass wrong size
+    // Can propogate error to the caller, but too easy to shoot yourself in the foot
+// This approach cannot be used to read any arbitrary file. What if you read file and there is no new line?
+#+end_src
+** Good interface
+- ssize_t read (int fd, char *buf, size_t bofsize);
+  - nonnegative int describing file you want to read
+    - like a handle on the file (like what we saw in node-from-scratch book)
+    - signed 64-bit number as return
+      - returns # of bytes read OR if @ EOF OR -1 if error (details errno)
+      - errno is thread local
+    - size_t: 64 bit unsigned
+- Pro: does not read by newlines, where readline is too specific
+* Designing APIs
+- Ex: factorial
+  #+begin_src c
+  long fact (long n) { if (!n) return 1; else return n*fact(n-1); }
+  #+end_src
+  #+begin_src asm
+  fact:
+    movq $1, %rax
+    testq %rdi, %rdi
+    jne .L8
+    ret
+  .L8
+    pushq %rbx
+    movq %rdi, %rbx //%rbx is callee save
+    leaq -1(%rdi),%rdi //rdi--
+    call fact
+    imulq %rbx, $$rax
+    popq $rbx
+    ret
+   #+end_src
+- Function modularity
+  - soft modularity: if everyone plays by rule, we're good, but if someone breaks it, very bad
+  - Ex: modifying the stack is a nono
+* Aside:
+- Problem: pipe is 5 kibybytes , emacs writes pipes with bigger inputs
+- Moral: don't enforce arbitrary limits
