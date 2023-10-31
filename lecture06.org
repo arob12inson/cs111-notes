@@ -26,8 +26,9 @@ int posix_spawnp(
 ** Less orthogonal, more efficient (less cloning)
 ** does a fork and an exec, then does things based off of the parameters
 ** TODO look up man page for posix_spawnp
-*** [ ] look up what restrict does
-*** [ ] what does restrict do?
+*** [X] look up what restrict does
+- Restrict means that it is the only pointer that points to whatever it is pointing to in memory
+*** [X] what does restrict do?
 * What can go wrong?
 ** File descriptors
 *** using one that is not open
@@ -64,7 +65,8 @@ int posix_spawnp(
 
 $du | sort -n
 
-    sort is going to issue a read before du sorts a write (because du is slow)
+    sort is going to issue a read before
+    du sorts a write (because du is slow)
     we don't want sort to return 0
 
     example of reader with no writers to the pipe
@@ -176,14 +178,16 @@ int main (int argc, char**){
   - Ex:
 #+begin_src c
 
-//Need abc + def = a constant, never change
+// Need abc + def = a constant, never change
 
     abc++;
-//Handle_control_c called here, assumption that abc + def isn't true
+// Handle_control_c called here,
+// assumption that abc + def isn't true
     def--;
 
 void handle_control_c (int sig){
-  malloc(6); //Shouldn't do this, your memory assumptions aren't true!
+  malloc(6); //Shouldn't do this,
+  // your memory assumptions aren't true!
 }
 #+end_src
  - malloc is not Async-signal-safe function call

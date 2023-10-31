@@ -90,8 +90,11 @@ int readline(char *buf); //Caller allocs buffer, can return error messages
     // Problem: buffer size is not known
 int readline(char *buf, int bufsize);
     // Caller could pass wrong size
-    // Can propogate error to the caller, but too easy to shoot yourself in the foot
-// This approach cannot be used to read any arbitrary file. What if you read file and there is no new line?
+    // Can propogate error to the caller,
+    // but too easy to shoot yourself in the foot
+
+// This approach cannot be used to read any
+// arbitrary file. What if you read file and there is no new line?
 #+end_src
 ** Good interface
 - ssize_t read (int fd, char *buf, size_t bofsize);

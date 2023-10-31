@@ -68,9 +68,13 @@ int pthread_sigmask(int how, const sigset_t *restrict set, //setting the signal 
 
 #include <pthread.h>
 int pthread_create(pthread_t *thread, //system dependent type, pointer to where we put pthread ID
-                   pthread_attr_t const *attr, //attributes of the thread we create, realtime thread
-                   void* (*start ) (void *), // pointer to a function that takes a pointer to a function with a pointer argument
-                   void *arg //argument to put inside of void
+                   pthread_attr_t const *attr,
+//attributes of the thread we create, realtime thread
+                   void* (*start ) (void *),
+// pointer to a function that takes a pointer to
+// a function with a pointer argument
+                   void *arg
+//argument to put inside of void
                    );
 
 #+end_src
@@ -79,9 +83,12 @@ int pthread_create(pthread_t *thread, //system dependent type, pointer to where 
 - C tip: can always asign a generic pointer to a specified thread
 #+begin_src c
 
-int pthread_join(pthread_t tid, void* status); //like waitpit() for threads. pthread_create returns tid
-int pthread_kill(pthread_t tid, int sig); //like KILL() call
-int pthread_cancel(pthread_t tid); //a polite kill, only kill thread at a cancellation points
+int pthread_join(pthread_t tid, void* status);
+//like waitpit() for threads. pthread_create returns tid
+int pthread_kill(pthread_t tid, int sig);
+//like KILL() call
+int pthread_cancel(pthread_t tid);
+//a polite kill, only kill thread at a cancellation points
 //cancellation points are syscalls (like printf)
 
 #+end_src

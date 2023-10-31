@@ -50,7 +50,9 @@ pid_t fork(void); //pid is an unsigned integer
 - returns the child's PID
 * Deallocating a process
 #+begin_src c
-_Noreturn void _exit(int exitStatus); //how to end a process | Noreturn is keyword meaning a func should never have a return value
+_Noreturn void _exit(int exitStatus);
+// how to end a process | Noreturn is keyword
+// meaning a func should never have a return value
 #+end_src
 ** why _exit?
 *** the regular exit() runs some cleanup, flushing output buffers, arrange for functions to be called on exit
@@ -61,7 +63,8 @@ _Noreturn void _exit(int exitStatus); //how to end a process | Noreturn is keywo
 *** might call _exit() if you think cleanup functions will cause some trouble
 * Kiling process
 #+begin_src c
-int kill (int sig, pid_t p); //Essentially ends another process, returns the success
+int kill (int sig, pid_t p);
+//Essentially ends another process, returns the success
 #+end_src
 ** Killing and _exiting doesn't deallocate the process!
 *** Has to remember the exit status of a process, saved in the process table
@@ -110,7 +113,8 @@ void printdate(void) {
         execvp("/usr/bin/date", (char *[]){"date", NULL}); //deletes current process and starts a new process in the context of the process calling execvp
         //if execvp returns, that means it failed
         //TODO figure out what the char thing does:
-            // Maybe: char of pointers to chars, first is "date", the second is NULL
+// Maybe: char of pointers to chars,
+// first is "date", the second is NULL
         error();
     }
     int st;

@@ -24,7 +24,8 @@ void update (int *p) {
   do {
     int old = *p;
     int new = f(old);
-  } while (!cas(p, old, new)); // do the block until it succeeds
+  } while (!cas(p, old, new)); // do the
+  // block until it succeeds
 }
 
   #+end_src
@@ -68,7 +69,8 @@ fixed example with compare and swap
 
     while (!cas(p, 0, 1))
       continue;
-    while (xchgl(p,1) == 1) //means old value was 1, so someone else has the lock
+    while (xchgl(p,1) == 1) //means old value
+        //was 1, so someone else has the lock
       continue;
 
 
@@ -87,7 +89,8 @@ fixed example with compare and swap
     struct pipe{
         char buf[1024];
         unsigned r, w;
-      //r points to first byte of data, write points to first unused junk data
+      //r points to first byte of data,
+    // write points to first unused junk data
     }
 
     void write(struct pipe *p, char b){ //single byte writing
@@ -107,14 +110,17 @@ fixed example with compare and swap
         char buf[1024];
         unsigned r, w;
         lock_t l;
-      //r points to first byte of data, write points to first unused junk data
+      // r points to first byte of data,
+      // write points to first unused junk data
     }
 
     void write(struct pipe *p, char b){ //single byte writing
       lock(&p->l); //lock per pipe, not application
-      bool ok = p->w - p->r < 1024; //fails if full: w & r can go above
+      bool ok = p->w - p->r < 1024; // fails if full:
+      // w & r can go above
       if (ok)
-        p->buf[p->w++ % 1024] = b; // encounters an error if W overflows & not a power of 2
+        p->buf[p->w++ % 1024] = b; // encounters an error if
+      // W overflows & not a power of 2
       unlock(&l);
       return ok;
 
@@ -143,17 +149,21 @@ void acquire (struct bmutex *p){
         /* add self to block list */
         if (!p -> locked)
             break;
-        unlock(&p->l); //if it came after yield, many processes would spin at the lock call
+        unlock(&p->l); //if it came after yield,
+        // many processes would spin at the lock call
         yield();
     }
-    p->locked = true; //signal that you have the lock (to whoever called the aquire() function)
+    p->locked = true; //signal that you have the
+    // lock (to whoever called the aquire() function)
     unlock(&p->l);
 }
 
 void release(struct bmutex *p){
 
     lock (&p->l);
-    /* set all processes in the blocked list to be runnable (remove from the block list) */
+    /* set all processes in the blocked list
+       to be runnable
+       (remove from the block list) */
     p->locked = false;
     unlock(&p->l);
 
@@ -182,7 +192,10 @@ void write(struct pipe *p, char b){
     acquire (&p->b);
     bool ok;
     // ...
-    // Problem: doesn't solve spinning problem because must still wait for a valid read/write, bmutex only solves spiining for acquiring read/write pointers
+    // Problem: doesn't solve spinning problem
+    // because must still wait for a valid
+    // read/write, bmutex only solves spiining
+    // for acquiring read/write pointers
     // didn't solve spinning for valid read/write, need a **conditional variable**
 
 }
@@ -198,10 +211,12 @@ wait (condvar_t *c, bmutex_t *b);
 // releases b, then blocks until some other thread notifies
 // reacquires b, then returns
 
-notify(condvar_t *c); // call this whenever the condition may have become true
+notify(condvar_t *c); // call this whenever the condition
+// may have become true
     // Must call when has become true, can call if not true yet
 
-broadcast(condvar_t *c) // wakes up ALL threads waiting (using a run queue or something)
+broadcast(condvar_t *c) // wakes up ALL threads waiting
+    // (using a run queue or something)
 
 #+end_src
 ** Redoing pipes with cond vars
@@ -220,7 +235,8 @@ void write(struct pipe *p, char b){
 
     acquire (&p->b);
     start:
-        wait(p->nonfull, p->b); //when wait returns, it might not be true
+        wait(p->nonfull, p->b); //when wait returns,
+        // it might not be true
         //we don't know if pipe is still not full here
         if (p->w - p->r == 1024)
             goto start;

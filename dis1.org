@@ -35,7 +35,8 @@
 ** Executing code
 #+begin_src C
 execlp("busybox", "ls", "-a", "-l", NULL);
-//The caller of this function will get replaced by the thread called by execlp
+//The caller of this function will get replaced by
+//the thread called by execlp
 //busy box is a binary that wraps common binaries
 //can replace busybox with ls
 
@@ -65,7 +66,8 @@ pipe(fds); //creates a pipe of 2 ends
 
 //child's code
 write(fds[1], "Hello, parent", 14);
-//file descriptor (number representing a file), buffer, bytes to write
+//file descriptor (number representing a file),
+// buffer, bytes to write
 #+end_src
 ** Note: If the child is asleep while the parent finishes, it will abandon the child
 ** It is safe for the child to sleep before it starts modifying the pipe
@@ -77,6 +79,6 @@ write(fds[1], "Hello, parent", 14);
 * Updating stdin for a parent
 ** dup2 or duplicate
 #+begin_src c
-dup2(fd, STDOUT_FILEND)
+dup2(fd, STDOUT_FILEND);
 #+end_src
 *** to figure out: how to get dup2 to get input/output into the pipe
