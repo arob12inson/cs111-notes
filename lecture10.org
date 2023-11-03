@@ -1,0 +1,187 @@
+#+title: Lecture10
+
+* What is a file system?
+- files persist
+    - When process exits/system crashes, we run out of
+- Files are abstract objects, must map them onto physical devices
+    - (Abstract) → (concrete)
+    - Physical devices: Hard disks, flash drives,
+- File systems are hybrid data structure:
+    - Keeps track of wehre things are in RAM
+    - **Performance issue**: persistance vs speed of tracking things in RAM vs Disk
+** Storage hierarchy
+1. Registers
+2. Caches
+3. DRAM
+4. Flash/disk
+5. Network Storage (magnetic tape)
+
+* Metrics for I/O
+I/O bound applications don't care about cpu usage
+** Utilization:
+   - % of IO apacity (inputs/outputs per second) in use
+   - problem is Utilization is very low
+   - what you tell the people buying the server: higher is good (You're using 98% of the machine!)
+** Throughput:
+   - 1/time,
+   - rate of request completion
+   - what you tell the users: higher is good (we can handle 10k requests!)
+** Latency:
+   - time between request & response
+   - Latency is usually the significant metric for perceived performance
+     - Tradeoff with throughput: can't handle many at once = applications don't have to wait
+* locality of reference
+Locality: assumption about the general behavior of a program
+
+** spatial locality:
+- if you access a[i], likely to access a[i+1] and a[i-1]
+- devices can batch data, so we want to batch things around the same location
+** Temporal Locality
+- if you access a[i] at time t, likely to access a[i] at time t+1 (or t+100!)
+
+* File System Levels
+- upper level fun stuff (later) / block level (lower level)
+** Block Level
+- divide into an array of blocks, size of the block depends on the file system
+- read block i, write block i
+| 8KiB | 8KiB | ........... | 8KiB |
+- blocks let you take advantage of temporal and spatial locality
+  - Kernel has a cache in ram (with blocks same size as file system blocks), remembers a small subset of the blocks in memory
+  - Read data will go into the cache first, then be read by the program
+  - Writing: copies into the kernel cache, marks the cache as "to be written to secondary storage"
+    - **problem** data is not persistent yet!
+    - more problems if system crashes
+      - Ex: one thread writes, another thread reads, both to I/O but only read from the cache, might not be stored yet (especially if something crashes)
+    - Solution: `sync()`: saves data & meta data for all open files (ensure nothing stored in cache only)
+      - fsync(fd) will do this for one file descriptor (cheaper)
+      - fdatasync(fd): won't save meta data, but saves the meta data (cheapest)
+** Cache Coherence
+  - Problems described above is cache coherance
+*** Cache size
+- Unused memory is wasted memory
+*** scheduling:
+- many competing processes want to use the cache
+- For I/O bound applications, this scheduling has a large effect on performance
+- Evection policy: which cache block to kick out
+- Cache size is fixed at runtime
+* Speculation:
+- Motivation: we want to read/write from cache, not the secondary (for speed)
+- Speculation OS guesses what a program wants, instead of waiting for the request
+** Prefetching:
+- Guessing what the computer is going to ask (read)
+** Batching
+- grab 10 blocks when a user asks for 1 block (read)
+- Works for writes too: writes it out all at once
+** Dallying
+- Don't write immediately, record the requests then do them all at once at a different time
+- if you dally long enough, can issue one big write
+- Build a bigger batch with dallying
+** Speculation: user level vs kernel code
+- Most of these tricks can be used in the user, but kernel wants to make that irrelevant
+- User level should not be able to know how the kernel is doing block writes
+- user can inform kernel to stop speculating (madvise())
+* Disk drives
+- multiple magnetic disks on top of eachother
+- 7200 rpm = 120Hz
+** how it works
+- disk head a couple atoms away from the disk, reading
+- Like a vinyl player, but the needle can move
+- can only read or write when the head isn't move
+- Data you can access quickly is a cyclinder (chunk of it is called a sector)
+- reading a random sector:
+  - Send a command to the disk controller
+  - Seek step: read heads move to get to the right cylinder (~10 ms) (dominant time)
+  - Rotational latency: once at the right cylinder, find right sector, (~4ms) (dominant time)
+  - Transfer time from disk to controller cache
+  - Transfer time from controller cache to ram
+* Disk Scheduling
+** Goals:
+- high throughput
+- no starvation
+- Focusing on the seek time
+** Model
+- Seek time only
+  - No rotational latency considered
+- 1 magnetic platter, therefore we represent memory this way (as if a circle)
+| 0 | ... | ... | ... | ... | ... | 1 | // time for the read |
+|   |     |     |     |     |     |   |                      |
+            h      i
+- cost: |i-h|
+- Average cost for random reads:
+  - worst case: read of 1, best case: read of 0
+  - [ ] REVIEW: Average: integral (0,1) integral (0,1) |i-h| di dh = 1/3
+** FCFS
+** Shortest Seek Time First:
+- minimizie |i-h| for all pending requests
+- gravitate to where the requests are,
+- High throughput, VERY low latency (+ starvation)
+  - If requests keep coming in near the head, veteran processes far from the head will get starved
+** FCFS + SSTF
+- break input queue into chunks
+- Within each chunk, do SSTF, but must finish a chunk of I/O requests before going to the next chunk
+** Elevator algorithm
+- elevator goes in increasing direction, then decreasing
+  - Can only seek forward, until hits boundary and seeks backwards anyways
+- Circular elevator algorithm: goes in increasing direction, never backwards
+  - has a fairness advantage,
+  - Less throughput, have to move disk arm back to the start
+    - Note: bottom floor is inner most cylinder, top flor is outter most cylinder
+** Anticipatory Scheduling
+- Dally a bit after an I/O
+- might get an I/O with spatial/temporal locality, thus read head will be in the right position efficiency improves
+- Idea: a "last call" before the elevator leaves
+* Flash Drives
+** properties
+- Random access is cheap/fast (no seek or rotational latency)
+- Flash wears out w/ a certain number of writes
+- Must erase before writing
+  - erasing is slow
+** TODO Model of a flash
+- 3D array of cells
+- I/O ops are parallele across rows/columns/planes
+- page= array of cells (4KiB)
+  - Read/write granularity
+- erasure block = array of pages (32KiB)
+  - erasure granularity
+- plane = array of erausre blocks
+- Channel (or die)= array of blane
+** Problem with flash file systems
+- too low level
+- flash wears out when erasing:
+** Flash translation layer
+- Hardware layer between I/O buss and the flash controller
+- Abstracts the geometry & erasure blocks
+- maintains internal mapping between physical and logical pages
+  - Constanly updating the mapping (i.e. changing which erasure block is temp), to evenly balance the writes
+- Goal: wear leveling: device wears out evenly
+* NVMe Non volatime Memory
+- Goal: provide interface increase throughput access to flash card
+- [ ] How does this make it faster
+- simple set of commands:
+  - Read:
+  - write:
+  - flush: make sure the writes have actually happened (cache writing)
+** I/O submit queue in dram:
+- [ ] check camera roll & rewatch lectures
+- I/O submit queue: bufer of I/O requests
+- I/O Submit queue: completing requets
+- Doesn't need to be completed in order
+
+* ZNS NVMe (Zone Name System)
+- Partition the drive into zones (zones vary in size)
+- zones are erasure blocks,
+- can write to the zones as much as you want, must write to it in sequential order
+- Zones have states:
+  - Empty, open, close, full, read only, offline
+  - Look up what these states mean
+** Addressing zones:
+- Zone # + page #
+  - No garbage collection
+** ?
+- Send requests in ||, executed out of order
+- write (specifies page #) //request specifies the page number
+  - os keeps track of what is being written
+  - At most one pending write requests
+- Append to a zone(whatever ) //response specifies the page number
+  - can have lots of pending requests
+  - find out where they went after they've gone
