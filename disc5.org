@@ -1,0 +1,46 @@
+#+title: Disc5
+
+* Hash table
+- o(1) insertion, deletion, finding elements
+- Goal: turn value into a hash
+** Collisions
+- occurs when 2 values have the same hash
+** Separate Chaining:
+- Indexing stores head of a linked list
+** Issues with separate chaining
+- Hard to guarentee a uniform distribution
+- if no universal distributoion, you lose O(1) feature
+* Thread safe
+- Don't want to lose your data!
+** Thread safe hash tables
+- multiple will access the hash table at the same time
+- Mutex locks will prevent 2 conflicting things happening at once
+** Race conditions
+- No problems if only readers
+- many problems if one is writing
+- many more problems if multiple writing
+- underlyihg issue: your code runs non-deterministally with the threads
+  Ideal:
+| t | Thread 1 | Thread 2 |
+| 0 | read     |          |
+| 1 | add      |          |
+| 2 | store    |          |
+| 3 |          | read     |
+| 4 |          | sub      |
+| 5 |          | store    |
+
+Problem:
+| t | Thread 1 | Thread 2 |
+| 0 | read     |          |
+| 1 |          | read     |
+| 2 | add      |          |
+| 3 | store    |          |
+| 4 |          | sub      |
+| 5 |          | store    |
+** Mutex
+- lock the critical sections of code
+- Mutexes will make you go to sleep if you try and grab a lock that you don't own
+- the performance can take a huge hit! context switching is expensive
+- 1 line of source code != 1 line of machine code
+* Lab 2
+- Not dealing with deletion & reading

@@ -132,56 +132,104 @@ Locality: assumption about the general behavior of a program
 - Idea: a "last call" before the elevator leaves
 * Flash Drives
 ** properties
+- Quickly changing
 - Random access is cheap/fast (no seek or rotational latency)
+  - Transfer rate stays the same
 - Flash wears out w/ a certain number of writes
 - Must erase before writing
-  - erasing is slow
+  - writing is a 2 step process: erasing, THEN writing
+  - erasing is slower than writing
 ** TODO Model of a flash
 - 3D array of cells
-- I/O ops are parallele across rows/columns/planes
-- page= array of cells (4KiB)
-  - Read/write granularity
-- erasure block = array of pages (32KiB)
+- I/O ops are parallel across rows/columns/planes (slices of the array)
+- page= array of cells (4KiB) (+ error correction in case reads) (1D)
+  - like a list of bits
+  - Unit of I/O
+  - Read/write granularity (only write on erased pages)
+- erasure block = array of pages (32MiB) (bigger 1D)
+  - Erase a block, then you can write to pages in that block
+  - Cannot "rewrite", once you write you must erase and write to effectively write
   - erasure granularity
-- plane = array of erausre blocks
-- Channel (or die)= array of blane
+- plane = array of erausre blocks (2D)
+- Channel (or die)= array of planes (3D, many pages stacked on top of eachother)
 ** Problem with flash file systems
 - too low level
-- flash wears out when erasing:
-** Flash translation layer
-- Hardware layer between I/O buss and the flash controller
+- flash wears out when erasing,
+  - Conventional file systems want to write to a file multiple times
+  - ex: writing into /temp file
+** Flash translation layer (FTL)
+- flash controller: Hardware layer between I/O bus and CPU
+  - Flash controller in charge of FTL, talks to the planes, etc
 - Abstracts the geometry & erasure blocks
-- maintains internal mapping between physical and logical pages
+  - Illusion of having N pages of data, can read or write a random page
+- maintains internal mapping between physical (flash drive device layer) and logical pages (cpu level)
   - Constanly updating the mapping (i.e. changing which erasure block is temp), to evenly balance the writes
+  - Ex: writing to temp
+    - start off storing in block 297,
+    - on next write to temp, b297 is blocked & allocates a new block
+    - FTL maps temp to new block
+    - writes at logical level might be random, but writes in an erasure block is sequential
+      - [ ] what does sequential writes mean? how is this significant
+    - some RAM used to store the block
 - Goal: wear leveling: device wears out evenly
+* Types of flashdrives:
+- Old: SATA drives,
+  - act like disk drives
+- New: NVMe Drives
 * NVMe Non volatime Memory
-- Goal: provide interface increase throughput access to flash card
-- [ ] How does this make it faster
-- simple set of commands:
-  - Read:
-  - write:
+- Speed up hardware architecture of FTL, speed it up (increase throughput)
+- Goal: provide interface increase throughput access to flash drives
+- [X] How does this make it faster: Does Loads & stores into RAM!, not through programmed I/O (like beginning of class)
+- interface has simple set of commands for I/O:
+  - Read: the Ith page
+  - write: the Ith page
+    - R&W will be implemented at the low level
   - flush: make sure the writes have actually happened (cache writing)
-** I/O submit queue in dram:
+    - make sure the cache's changes are committed
+** How it works: I/O submit queue in dram:
+- CPU has own cache & DRAM controller
+- DRAM
+- NVMe controller talks to DRAM (like DMA)
+- flash drive talks to DRAM
+*** Data structures inside DRAM
 - [ ] check camera roll & rewatch lectures
 - I/O submit queue: bufer of I/O requests
+  - when buffer fills up, that means flash controller isn't keeping up with CPU
 - I/O Submit queue: completing requets
-- Doesn't need to be completed in order
+  - Responses back from controller to the CPU, saying what it finished
+- Doesn't need to be completed in order they were made
+  - cpu reads what is done
+  - Can still put dependencies into the queue, so not completely random
 
 * ZNS NVMe (Zone Name System)
+- add another abstriction to hardware level
+** How it works
 - Partition the drive into zones (zones vary in size)
-- zones are erasure blocks,
-- can write to the zones as much as you want, must write to it in sequential order
+  - can specify how u want the partitions
+- zones are like erasure blocks, but varying size
+- single zone can write to the zones as much as you want, must write to it in sequential order
+  - erase them, then write to the end (aka append to them)
 - Zones have states:
   - Empty, open, close, full, read only, offline
   - Look up what these states mean
 ** Addressing zones:
 - Zone # + page #
-  - No garbage collection
-** ?
-- Send requests in ||, executed out of order
-- write (specifies page #) //request specifies the page number
-  - os keeps track of what is being written
-  - At most one pending write requests
-- Append to a zone(whatever ) //response specifies the page number
-  - can have lots of pending requests
-  - find out where they went after they've gone
+  - coarse grained addressing
+  - user level doesn't worry about garbage collection
+    - no need to delete garbage blocks
+** Blackboard analogy
+- Send several requests in ||, executed out of order (for efficiency)
+- catches of writing:
+  - write (specifies page number#) //request specifies the page number
+    - must follow rules of appending
+    - responsibility on OS to keep track of what's been written
+    - os keeps track of what is being written
+    - At most one pending write requests
+      - output queue cannot be filled with output requests
+    - Request specifies the page number
+  - Append to a zone(whatever ) //response specifies the page number
+    - advantage: can have lots of pending requests
+    - find out where they went after they've gone
+    - Response specifies the page number
+      - OS must deal with the fact that the page number is essentially random
+- Speed increase comes from the Append
