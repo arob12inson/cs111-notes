@@ -1,0 +1,296 @@
+% Created 2023-11-11 Sat 17:22
+% Intended LaTeX compiler: pdflatex
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{longtable}
+\usepackage{wrapfig}
+\usepackage{rotating}
+\usepackage[normalem]{ulem}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{capt-of}
+\usepackage{hyperref}
+\author{Aidan  Robinson}
+\date{\today}
+\title{Lecture12}
+\hypersetup{
+ pdfauthor={Aidan  Robinson},
+ pdftitle={Lecture12},
+ pdfkeywords={},
+ pdfsubject={},
+ pdfcreator={Emacs 29.1 (Org mode 9.7)}, 
+ pdflang={English}}
+\begin{document}
+
+\maketitle
+\tableofcontents
+
+\section{File system design \& implementation}
+\label{sec:orgbfe35e5}
+\subsection{Motivation}
+\label{sec:org69fdc74}
+\begin{itemize}
+\item performance
+\begin{itemize}
+\item latency
+\item throughput
+\item space (Secondary storage)
+\end{itemize}
+\item Safety/robustness
+\begin{itemize}
+\item crashes
+\item Bad devices
+\end{itemize}
+\end{itemize}
+\section{Unix style}
+\label{sec:orgf5abcc0}
+\begin{itemize}
+\item Hybrid data structure:
+\begin{itemize}
+\item L1/L2 RAM vs Secondary storage
+\end{itemize}
+\item NUMA Architecture: Non uniform memeory access
+\begin{itemize}
+\item makes a big difference in speed of access
+\end{itemize}
+\end{itemize}
+\subsection{Inodes}
+\label{sec:org0a403c8}
+\begin{itemize}
+\item[{$\boxtimes$}] Benefit: very flexible (see last lecture)
+\item Disadvantage: half to go to the flashdrive twice (inode, then file associated with inode)
+\item Inode structure:
+\begin{itemize}
+\item files meta data
+\begin{itemize}
+\item perm, owner, timestamp, link count, inode file
+\end{itemize}
+\item Inodes do NOT tell you the files name
+\begin{itemize}
+\item because of hard links:
+\item 2 hard links to same inode, what name to use?
+\end{itemize}
+\end{itemize}
+\item Addressses of file data (blocks)
+\item Problems:
+\begin{itemize}
+\item large files suffer from bad seek times
+\item treating 2 files linked to same inode causes bad behavior
+\item deleting files is more complicated
+\begin{itemize}
+\item Solution: referene/link count INodes \& the disk space, count drops to 0
+\end{itemize}
+\end{itemize}
+\item Link counts:
+\begin{itemize}
+\item if count drops to 0, AND no processes have the file open
+\begin{itemize}
+\item uses hybrid storage to enforce:
+\begin{itemize}
+\item Link count is part of permanent storage,
+\item \# of processes with file open on ram
+\end{itemize}
+\end{itemize}
+\item Link count problem: LEAKS:
+\begin{itemize}
+\item if link count 0, but computer crashes while reading,
+\item Solution: `fsck` file system check @ /dev/sdc
+\item looks for bad stuff (i.e. inodes with link count 0)
+\end{itemize}
+\end{itemize}
+\end{itemize}
+\subsection{Renames}
+\label{sec:org17e9a6f}
+\begin{itemize}
+\item `mv a b`: read 1 block; write 1 block (the name)
+\item `mv d/a e/b`: renaming in directories is tough
+\begin{itemize}
+\item increment d/a link count by 1 (write to inode)
+\item create an entry b in directory e (write to data block of directory e)
+\item remove entry a in d (write)
+\item Decrementing inode 19's link count (write)
+\end{itemize}
+\item `ln d/a e/b`:
+\begin{itemize}
+\item increment d/a link count by 1 (write to inode)
+\item create an entry b in directory e (write to data block of directory e)
+\item benefit: SAFER to implement link and unlink
+\end{itemize}
+\end{itemize}
+\subsection{Directory entries for varyting length file name components}
+\label{sec:org1a712ba}
+\begin{itemize}
+\item components: name between the ``/''
+\item 255 byte limit for file name components: static
+\end{itemize}
+\subsection{Limits \& directory entry}
+\label{sec:org4456ba9}
+\begin{itemize}
+\item ext2/3/4 \& 4BSD File system: different directory entry structure
+\item 32-bit inode \#
+\item 16-bit directory entry length
+\begin{itemize}
+\item lets you delete quickly by adding directory entry length to previous entry's
+\begin{itemize}
+\item We don't squash the files together!
+\end{itemize}
+\item[{$\boxtimes$}] draw this out!
+\item 1 block rewriting!
+\item directory entry length can be MUCH bigger than name length
+\end{itemize}
+\item 8-bit name length
+\item 8 bit file type
+\begin{itemize}
+\item a copy of what is already in the inode
+\item why cache file type in the directory entry? for performance
+\begin{itemize}
+\item for recursive calls, checking if an entry is a file is faster (no system call needed)
+\end{itemize}
+\item Why not cache the size: because it is changing/mutable (file type is not!)
+\end{itemize}
+\item file name component: component entry: N size (specified by 8-bit name length)
+\item Entries do not cross block boundaries
+\end{itemize}
+\subsection{Cyclic inodes}
+\label{sec:org07feb90}
+\begin{verbatim}
+mkdir a
+ln a a/b
+
+\end{verbatim}
+\begin{itemize}
+\item problem: `find a -type f`
+\item cannot hardlink to directories
+\begin{itemize}
+\item otherwise, a, a/b, a/b/b would all be valid
+\item Want to prevent cycles
+\end{itemize}
+\item for `link()` system call, fail if first argument is a directory
+\end{itemize}
+\subsection{. problem:}
+\label{sec:orgf0476f9}
+\begin{itemize}
+\item `opendir('.')` cannot be done, because inode doens't have name
+\item inode number of current working directory is stored in process table entry
+\item `open(``a/b/c'')`: will look component by component for inode numbers
+\begin{itemize}
+\item if absolute path, start with root directory inode \#
+\end{itemize}
+\item Chdir system call will change the pwd column in process table entry
+\begin{itemize}
+\item shell's directory is not changed, only the cd.c process changes working directory
+\begin{verbatim}
+  // Incorrect code!
+    int main (int argc, char ** argv){
+        if(chdir(argv[1]) < 0){
+          perror("chdir");
+          return 1;
+        }
+        return 0;
+    }
+
+
+
+\end{verbatim}
+\end{itemize}
+\end{itemize}
+\subsubsection{Chroot shenanigans:}
+\label{sec:org3e8b891}
+\begin{itemize}
+\item chroot(char* new\textsubscript{root});
+\begin{itemize}
+\item no way to change it back, /.. = /
+\item only usable by root: otherwise you could do shananigans
+\end{itemize}
+\item chroot could let create your own /etc/password file, and run sudo commands (dangerous!)
+\end{itemize}
+\subsection{Symbolic links}
+\label{sec:orgd062b92}
+\begin{itemize}
+\item implemented as a regular file, just specify that it is a symbolic link
+\item Symlinks are relative links!
+\item Meta data is same as regular inode, except file type is a symlink (\& less data blocks)
+\item symlink file type is treated as a reference,
+\begin{itemize}
+\item replaces contents of name of sym link with the contents of the sym link
+\item Symlinks are expanded at `namei` time: expanded by the kernel
+\begin{itemize}
+\item namei: traversal
+\end{itemize}
+\end{itemize}
+\end{itemize}
+\subsubsection{Hardlinks with symbolic links}
+\label{sec:orgf9a0a35}
+\begin{itemize}
+\item can create a hardlink to a symbolic link
+\end{itemize}
+\begin{verbatim}
+ln -s a d/b
+ln d/b e/f
+
+cat d/b # same as cat d/a
+cat e/f # same cat e/f -> cat e/a
+# directory d and directory e are not
+# sym links are resolved inside the current directory?
+\end{verbatim}
+\begin{itemize}
+\item \textbf{\textbf{A realtive symbolic link is interpreted in the context of the directory that contains it}}
+\item Purpose: can copy a tree easily
+\end{itemize}
+\subsubsection{Symlink problems:}
+\label{sec:org28d689e}
+\begin{itemize}
+\item dangling symlink
+\item cyclical symlinks (a linked to b, b linked to a)
+\begin{itemize}
+\item namei has a symlink limit
+\item errno = ELOOP
+\end{itemize}
+\item can't edit symlink directly, because `open` will expand
+\item some system calls don't follow sym links
+\begin{itemize}
+\item ls -l foo
+\end{itemize}
+\end{itemize}
+\subsection{/dev/null: other file types}
+\label{sec:org83970f0}
+\begin{itemize}
+\item c type file: kernel module designed to mimic that file
+\begin{itemize}
+\item /dev/null pretends to be a file, returns end of file immediatley
+\end{itemize}
+\item mknod /dev/null c 1 3
+\begin{itemize}
+\item create a character special file
+\item major device number \& minor device number: specify what part of the kernel to invoke when the file is called
+\end{itemize}
+\item[{$\square$}] block special file
+\item pipes: mkfifo /tmp/f
+\begin{itemize}
+\item creates a pipe in the kernel,
+\item Creates entry in file system pointing to the pipe
+\item cat /tmp/f: reads the pipe
+\item writing to pipe: echo abc > /tmp/f
+\item easy way to allow communication w/o saving a file to disk or a system call
+\end{itemize}
+\end{itemize}
+\subsection{One more thing}
+\label{sec:org2a6ae83}
+\begin{itemize}
+\item seperate file system per each devices
+\begin{itemize}
+\item makes changing out devices easier
+\end{itemize}
+\item Need to number devices
+\begin{itemize}
+\item accessing files needs file number \& device number
+\item linux must keep track of new file system
+\end{itemize}
+\item Mounted file systems
+\begin{itemize}
+\item table keeping track of your mounted systems
+\end{itemize}
+\end{itemize}
+\end{document}

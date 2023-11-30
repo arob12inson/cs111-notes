@@ -1,0 +1,161 @@
+#+title Lecture 14
+
+* Unreliability
+** Commit Records
+- Leverge off of atomic writes to single block to implement large atomic writes
+- This is a single bit at the end of the buffer indicating whether it's been written or not
+*** TODO Problem:
+Structure:
+
+begin
+    Read + writes
+    COMMIT (write commit record)
+    Reads+ WRITE
+    ...
+end
+** Journaling
+- 2 disks
+  - one holds data one holds log of all data
+- Cell data: Array of blocks ( big array )
+- Log: Append only, smaller array (never shrinks)
+- if changing cell data:
+  - put into the log the change u wanna make (the physical data)
+  - Put in a commit record to tell you where the Z is supposed to go into
+  - On reboot, computer makes note of the changing block
+  - if updated, tell the log that the commit has been committed
+*** Benefits/Complexities
+- hard disk: sequential
+- all disks: data and log are 2 different devices, write in parallel
+  - if computer has only 1 secondary storage, 2 different partitions of the file
+- Preserves atomicity
+*** Write ahead log:
+- write planned changes first into the log
+- write commit record into the log
+- copy the planed changes into cell data
+- Rebooting is a "redo" of partially done operations
+*** Write-behind log:
+- BEGIN:
+  - write old values into the log
+  - write the new values into cell data
+  - write commit record
+- END
+- If lose power during new value writing, if no commit record copy old data back into the cell data
+  - Rebooting is an "undo" operation in this case
+** Problems while running:
+- If writing cannot continue to completion, bad things can happen
+  - Need an abort record inside of the log
+
+* Recovery
+- Fsck/phase (between power-on and file system use)
+  - don't want it to scan the whole file system
+- must be idempotent: f(x) = f(f(x))
+  - in this case, f = power failure then reboot
+  - power failure during reboot shouldn't screw things up
+- Must deal with aborts
+** new approach:
+- Cell data may be:
+  - non-volatile (permanent)
+  - [ ] volatile: RAM (big log): (have to write it out at times)
+    - Main memory file system with no log
+    - Advantage: really fast
+** Complex idea:
+- let users see "inside" the transactions
+  - They know when tey're looking at tentative data
+- users need ability to their own
+BEGIN
+    file system activties
+    commit/abort -> cascading aborts, decide what to do at the leve that it happens
+    file systmem activities
+END
+- Compensating actions: repair for underlying abort
+* Interaction between block I/O scheduling and commits
+- optimizations: Dallying
+  - physical writes are done out of order
+  - commit records won't be written at right time (won't log data before the commit record)
+    - ex: writing blocks in data before copying blocks for write behind
+- Fix:
+  - simple fix: disable IO scheduling
+    - Don't reorder writes when dallying
+  - Better fix: tell low level system about write dependencies
+* Bad memory refereces & dealing with them
+- how to deal with them:
+  - Runtime checking in your program (VERY SLOW)
+    - gcc fsanitize=address (debugging only)
+    - Intel MPX: hardware support for bad pointer & index checking
+      - base and bount registers
+      - problem: addresses had to be validated by the hardware, too much overhead
+    - Cheri: 129 bit pointers
+      - pointer, base/bounds pair, valid bit
+  - These methods protect program from itself, accessing bad memory
+** Basic ways of checking bad memory references
+- Simple machine with:
+  - big chunk of ran
+  - run multiple programs in isolation
+- Give each program its own region
+- 2 new registers on machine base register and LR for limit register
+  - rule: acessing memory needs this property: BR <= A < LR
+  - BR and LR is specific to process, traps if you access out of these bands
+- Benefits:
+  - only add 2 registers per process
+- corollaries to the approcach:
+  - user code cannot change the code
+    - otherwise it could access somebody else's products
+- Issues:
+  - must know process size beforehand: process sizes are preallocated
+  - copied code (fork, threads, etc) cannot jump to absolute addresses
+    - Need position independent code
+** segmented memory
+- 64 bit pointers, 16 bit segment number and 48 number offset & segments
+- Each process has a segment table,
+- [ ] how is the segment table used?
+- Moving around is very expensive, growing a segemtn might take you a lot
+- External fragmentation
+* Paged Mode
+- like segmented memory, but each segment is the same size
+- more flexibility: scatter each segment around in memory
+  - Problem: many more pages to deal with
+  - complex to deal with all of these pages
+- Virtual address:
+  - virtual page number and an offesst
+  - VPN is index into page table,
+    - only need to store the base of each page, because fixed size
+  - Real life: Multilevel page table to make it smaller
+    - caches translation lookaside buffers cache the pages, quick access if you don't modify the page tables
+- Page table entries:
+  - 4KiB pages ony needs
+  - leftover bits used for other things
+    - Valid bit?
+    - readable? Writable? Executable? bits
+    - Kernel bit: whether or not it needs kernel mode to execute
+      - kernel can look into page table, user cannot (otherwise it could sneak into other pages)
+- Per process page table:
+  - controls what memory it can access, so you don't access someone else's pages
+  - hardware must know where the page table is: its the hardware's job to do translations
+    - Memory management unit: Cr3 register, privledged register
+- Note: threads share page table (b/c expensive resource)
+** Page faulting:
+- program accesses memory that it is not allowed to access
+- trap into the kernel: deciding what gets to happen
+  - can terminate the program: with a core dump
+  - kernel can also send you a signal: SIGSEGV or SIGBUS (changes its instruction pointer to do)
+  - can look at the kernel to see if its right:
+    - repair the page table to make failing instruction a good one
+    - return (reexecute) the bad instruction
+    - Good for programs needing more memory than phsyically possible
+*** Big Programs: stored on flash
+- pretends its running on an infinite memory system
+- store memory on flash
+- commonly used things should be on ram
+- page fualt = accessing a page not currently in RAM
+*** page faulting mechanism
+- kenrel know shte bad virtual address & the failing process (who and how)
+  - kernel can figure out where in flash it si stored
+#+begin_example c
+victim physical page number = oracle ()
+write a page from vppn into swampmap (p, va) (victim process, victim virtual address)
+
+ssa = swapmap(p, va) (secondary storage address)
+read a page from ssa into memory
+
+#+end_example
+- has to pick out a page to evict

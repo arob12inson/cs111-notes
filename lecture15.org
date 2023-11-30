@@ -1,0 +1,112 @@
+#+title: Lecture15
+
+* Virtual Memory & Distributed systems
+- Processes should be illusional to eachtoher for the sake of security & Sanity
+- Ram is cache for swap Space
+  - [ ] Review beginning of lecture
+  - differentiate between page fault and addressing out of bounds
+* Page defauliting
+- page fault code:
+  consult "oracle" to pick a victim page
+  write victim page to disk, faulting page will be written in
+  - picking victm page is a policy question
+** eviction policy:
+- Question: who should we kick out?
+- goals of eviction policy:
+  - minimize # of page fualts (latency & throughput)
+    - maximize # of cache hits
+  - maximize useful info in cache
+    - minimize the cache size
+- example policies
+  1. picking at random
+     - REALLY BAD: does not utilize locality of reference
+     - Temporal locality is very important
+  2. virtual
+- implementations for tferent emporal locality:
+  - Trace of accesses/ reference string
+    ex: 0 1 2 3 0 1 4 0 1 2 3 4(list of pages we access)
+  - [ ] how many page faults are we doing with page A B C
+  - Solution 1: buy more memory
+    - [ ] show how this is slower!
+    - Doesn't alwasy help to improve the hardware!
+  - Solution 2: oracle of delphi method:
+    - [ ] fill it out
+    - when need to replace, replace the page who won't be re-paged in for the longest
+      - The procrastination algorithm
+    - problem: OS doesn't always know this
+    - need a heuristic that approximates to this
+  - solution 3: least frequently used
+    - have a count for how many times each page has been used since it has been placed in
+    - LIFO to break ties
+  - Solution: least recently used
+    -
+- `madvise(buf, size, expected use)`
+  - expected use = advice for a page replacement algorithm
+  - [ ] MADV_
+    - SEQUENTIAL
+    - RANDOM
+    - UNUSED
+** Implementing Least recently used (mechanism)
+- 1) hardware maintains a clock, stores it into page table entry on page access
+  - asking for too much, don't want to load increment + stroe on hardware whenever user increments
+- 2) do it on software
+  - idea: do an approximation using r/w/x bits of the process
+  - kernel periodically changes r/w/x to 0, so all accesses will incur a page fault
+  - when page fault: trap, add 1 to clock table, restores the rwx bits and returns
+* VM Optimizations
+ - demand paging: (lessen startup latency)
+   - paging in as needed
+   - downside: overall cpu time spent replacing pages
+ - dirty bit
+   - one etra bit: page in ram = page in swap
+   - if dirty bit is 0, don't have to write to swap (disk)
+   - benefit: supported by hardware (more likely than clock)
+   - software implementation: copy on write,
+     - page table is read-only in page table (OS Knows its read & write)
+     - when trying to write, page fault, underlying implementation will set page table to writable AND can set dirty bit to 1 at the same time
+   - very helpful for data
+** Aside: `void *mmap(void *addr size_t len, int prot)`
+- base virtual address, bytes to adjust, r/w/x,
+  - should be a multiple of the page size
+- Other arguments:
+  - int flags: how much shareing should be done with this part of virtual memory
+    - shared/private/fixed
+  - int fd, off_t off
+    - accesses files as if they were RAM/swap space
+- system call, asking to make changes to the page table
+- [ ] /dev/zero (file of 0s) + void *mmap used for malloc calls, swap space of all 0's
+  [[https://stackoverflow.com/questions/8507945/mmap-with-dev-zero]]
+* Distributed computing
+** 8 fallacies of distrbuted network computing
+- the network is reliable
+- latency is 0
+- bandwith = infinity
+- Network is secutre
+- There is a single admin
+- the topology won't change
+  - part of network, hosts can go down while working
+- The transport costs for additional data is zero
+- the network is homogenous
+- ** We want to ignore these problems as much as practical** methods:
+  - abstraction
+  - lots of code written without worrying about 1-8
+    - solution: rpc
+** RPC
+- remote procedure call (RPC): user gets to pretend they are just using functions, actually client server
+- Client packages (request), unpackages response
+- sample RPC: X protocol for windowing systems
+  - client: send x, send y, send color, read reply: x = XDrawPixel(3, 5, BLUE)
+- sample RPC: HTTP + JS
+** How rpc can go wrong
+- RPC failures modes are different
+- +: client and server RAM are distinct: neither can trash the other
+- Cons:
+  - messages can be lost, corrupted
+  - network mught be down/slow
+** Solutions:
+- corruption: use checksums
+- if no response: could be down, slow, or
+  - keep trying (send a request again): at least once RPC
+  - return error if no response in time T: at most once RPC
+  - Exactly one RPC: ideal, but expensive to do right
+- App must deal with these issues, network system calls are different than regular system calls

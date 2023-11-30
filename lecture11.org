@@ -1,0 +1,146 @@
+#+title: lecture 11
+
+* Flash
+- garbage collector is very difficult to implement for the OS
+- Solution: ZNS, flashdrive does it for you
+** ZNS Higher level interface
+- flash is accessed via zones
+- zone: virtual array of pages, can vary in size
+- accessing pages: zone # + page # (offset)
+- ZNS Operations:
+  - read
+  - write (just once)
+    - only one can be pending at any given time
+    - Lower latency
+  - append
+    - return location where the data was placed
+    - higher throughput
+- ZNS operations can be done out of order
+  - appends are out of order, you don't know where you append to until you do it
+- Zones have states
+  - empty
+  - open: can write to zone
+  - closed: don't have access
+  - full: cannot write anymore
+  - read only: get better performance
+  - offline:
+** Doetemijer et AL 2023: ZNS performance
+- write has a lower latency than append
+- intrazone scales better than interzone
+  - Reason: garbage collector job's is easier
+- Finish operation: transition from the open state to full state
+  - like a "commit" in git, can take 100s of ms
+- ZNS has 3x read throughput vs original flash (when doing concurrent IO)
+- reset op ~20ms
+* File Systems
+- traditional file systems are device independent
+  - assumption: device hardware is an array of byte blocks
+  - 8KiB for now
+** Partitions
+- desire: partition the drive:
+  - each has a starting block/sector & a size
+  - partitions exhaust device & have no overlap
+- [ ] swap partitions: what are they?
+  - for virtual memory
+- partitions are software
+  - for zns, software know's about the hardware
+** layers of file system:
+sym links
+file names
+directories + file name components
+inode: describes a file (lives in ram & storage)
+file systems + mount table available to use
+partitions
+Hardware
+** Problems:
+- bad blocks: sectors are wrong
+  - disk controller/ hardware handles bad blocks
+  - OS gets illusion of all perfect blocks
+- Encryption:
+  - typically, iencryption is done per block
+  - better privacy
+  - to erase, you just forget the key (make it available)
+    - OS needs to make sure you don't pull out the encrypted data
+- bad drives
+  - solution: use redundancy (multiple drives)
+- Network drives:
+  - data stored on somewhere else
+* RT11 file system: Prototype File system
+- files start at beginning of 512 byte sectors
+** benefits:
+- simple
+- good performance (sequential reading)
+** Problems:
+- files can stop mid byte sector
+  - this is called internal fragmentation: if file only uses half the sector, space is wasted
+- External fragmentation: free blocks are too scattered (i.e. too small between files)
+- Problem: where to find the files?
+  - you want files to keep track of the files for **flexibility**
+  - Eggert's solutions: beginning of disk was the file table
+    - 10, 4, & 2: file name,sector, file size
+- Hard limit: fixed size file table
+- **Expensive to grow files (cheap to shrink them)**
+  - people HATE not being able to grow their files
+  - allocation requirement: need to know how big file will be
+- Keeping track of free space
+- No redundancy: corruption is LETHAL
+- no way to organize into a heigharchy: one directory only
+** why real systems:
+- everything is continuous
+- I/O access times are more predictable
+* FAT (file allocation table) file system
+- Goal: 0 external fragmentation
+** structure of floppy
+- 4kib blocks
+- Start: 1st sector is the boot sector
+- superblock: contains meta data about the entire file system
+  - version number,
+  - size of file system,
+  - # of used blocks
+  - block # of root directory
+- file allocation table
+  | 1 |    |
+  | 2 | -1 |
+  | 3 | 47 |
+  | 4 |  8 |
+  | 5 |  0 |
+  - array of block numbers
+  - [ ] maps absolute block number to relative block numbers (16 bit number)
+  - 2048 files done entries
+  - **file is a linked list of blocks**
+  - Can read the FAT table into ram
+  - 0: EOF
+  - -1: free block
+    (2^16-2) * 4KiB
+  - adding more size: look for -1s in the ram
+- Finding start of the file: the directory
+  - directories are managed by os
+  - contents are names and locations of other files
+  - Fat directory entry: name  size  block_start# file_type
+    - file_type: bit determinging if it is a file or directory
+** Problem with fat:
+- tricky to implement file renaming
+  - either corrupt the data or lose it
+- LSEEK is hard
+- solution: inodes
+* Inodes int he unix file system
+- idea: pointers for files (indirection)
+- data structure that describes a file
+  - fixed size
+- file system has extra table of INODES,
+** inodes structure
+- an inode has: size, time stamps (last modified, access, change), group, permissions
+- Contains first 10 blocks of the file (direct blocks)
+- bigger files: 11th block is pointer to indirect block (1 level of indirection)
+  - array of block numbers pointing to block numbers
+  - 8 KiB block size, 32 bit blocks
+  - 2058 * 8192 bytes to represent
+- 12th block: double indirection: points to a block containing: 2 levels of indirection
+  - points to an array of pointers to array of data ()
+  - files can have holes: ** Sparse file **
+    - ex: if you seek in an empty file, then write
+      `lseek (fd 4*8192, SEEKSET)`: the inode's 1st 4 blocks say 0, then points to a block of data
+** benefits
+- better for lseeking
+- No external fragmentation
+- haven't solved renaming problem

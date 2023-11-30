@@ -1,0 +1,157 @@
+#+title: Lecture12
+
+* File system design & implementation
+** Motivation
+- performance
+  - latency
+  - throughput
+  - space (Secondary storage)
+- Safety/robustness
+  - crashes
+  - Bad devices
+* Unix style
+- Hybrid data structure:
+  - L1/L2 RAM vs Secondary storage
+- NUMA Architecture: Non uniform memeory access
+  - makes a big difference in speed of access
+** Inodes
+- [X] Benefit: very flexible (see last lecture)
+- Disadvantage: half to go to the flashdrive twice (inode, then file associated with inode)
+- Inode structure:
+  - files meta data
+    - perm, owner, timestamp, link count, inode file
+  - Inodes do NOT tell you the files name
+    - because of hard links:
+    - 2 hard links to same inode, what name to use?
+- Addressses of file data (blocks)
+- Problems:
+  - large files suffer from bad seek times
+  - treating 2 files linked to same inode causes bad behavior
+  - deleting files is more complicated
+    - Solution: referene/link count INodes & the disk space, count drops to 0
+- Link counts:
+  - if count drops to 0, AND no processes have the file open
+    - uses hybrid storage to enforce:
+      - Link count is part of permanent storage,
+      - # of processes with file open on ram
+  - Link count problem: LEAKS:
+    - if link count 0, but computer crashes while reading,
+    - Solution: `fsck` file system check @ /dev/sdc
+    - looks for bad stuff (i.e. inodes with link count 0)
+** Renames
+- `mv a b`: read 1 block; write 1 block (the name)
+- `mv d/a e/b`: renaming in directories is tough
+  - increment d/a link count by 1 (write to inode)
+  - create an entry b in directory e (write to data block of directory e)
+  - remove entry a in d (write)
+  - Decrementing inode 19's link count (write)
+- `ln d/a e/b`:
+  - increment d/a link count by 1 (write to inode)
+  - create an entry b in directory e (write to data block of directory e)
+  - benefit: SAFER to implement link and unlink
+** Directory entries for varyting length file name components
+- components: name between the "/"
+- 255 byte limit for file name components: static
+** Limits & directory entry
+- ext2/3/4 & 4BSD File system: different directory entry structure
+- 32-bit inode #
+- 16-bit directory entry length
+  - lets you delete quickly by adding directory entry length to previous entry's
+    - We don't squash the files together!
+  - [X] draw this out!
+  - 1 block rewriting!
+  - directory entry length can be MUCH bigger than name length
+- 8-bit name length
+- 8 bit file type
+  - a copy of what is already in the inode
+  - why cache file type in the directory entry? for performance
+    - for recursive calls, checking if an entry is a file is faster (no system call needed)
+  - Why not cache the size: because it is changing/mutable (file type is not!)
+- file name component: component entry: N size (specified by 8-bit name length)
+- Entries do not cross block boundaries
+** Cyclic inodes
+#+begin_src bash
+mkdir a
+ln a a/b
+
+#+end_src
+- problem: `find a -type f`
+- cannot hardlink to directories
+  - otherwise, a, a/b, a/b/b would all be valid
+  - Want to prevent cycles
+- for `link()` system call, fail if first argument is a directory
+** . problem:
+- `opendir('.')` cannot be done, because inode doens't have name
+- inode number of current working directory is stored in process table entry
+- `open("a/b/c")`: will look component by component for inode numbers
+  - if absolute path, start with root directory inode #
+- Chdir system call will change the pwd column in process table entry
+  - shell's directory is not changed, only the cd.c process changes working directory
+    #+begin_src c
+  // Incorrect code!
+    int main (int argc, char ** argv){
+        if(chdir(argv[1]) < 0){
+          perror("chdir");
+          return 1;
+        }
+        return 0;
+    }
+
+
+
+    #+end_src
+*** Chroot shenanigans:
+- chroot(char* new_root);
+  - no way to change it back, /.. = /
+  - only usable by root: otherwise you could do shananigans
+- chroot could let create your own /etc/password file, and run sudo commands (dangerous!)
+** Symbolic links
+- implemented as a regular file, just specify that it is a symbolic link
+- Symlinks are relative links!
+- Meta data is same as regular inode, except file type is a symlink (& less data blocks)
+- symlink file type is treated as a reference,
+  - replaces contents of name of sym link with the contents of the sym link
+  - Symlinks are expanded at `namei` time: expanded by the kernel
+    - namei: traversal
+*** Hardlinks with symbolic links
+- can create a hardlink to a symbolic link
+#+begin_src bash
+ln -s a d/b
+ln d/b e/f
+
+cat d/b # same as cat d/a
+cat e/f # same cat e/f -> cat e/a
+# directory d and directory e are not
+# sym links are resolved inside the current directory?
+#+end_src
+- **A realtive symbolic link is interpreted in the context of the directory that contains it**
+- Purpose: can copy a tree easily
+*** Symlink problems:
+- dangling symlink
+- cyclical symlinks (a linked to b, b linked to a)
+  - namei has a symlink limit
+  - errno = ELOOP
+- can't edit symlink directly, because `open` will expand
+- some system calls don't follow sym links
+  - ls -l foo
+** /dev/null: other file types
+- c type file: kernel module designed to mimic that file
+  - /dev/null pretends to be a file, returns end of file immediatley
+- mknod /dev/null c 1 3
+  - create a character special file
+  - major device number & minor device number: specify what part of the kernel to invoke when the file is called
+- [ ] block special file
+- pipes: mkfifo /tmp/f
+  - creates a pipe in the kernel,
+  - Creates entry in file system pointing to the pipe
+  - cat /tmp/f: reads the pipe
+  - writing to pipe: echo abc > /tmp/f
+  - easy way to allow communication w/o saving a file to disk or a system call
+** One more thing
+- seperate file system per each devices
+  - makes changing out devices easier
+- Need to number devices
+  - accessing files needs file number & device number
+  - linux must keep track of new file system
+- Mounted file systems
+  - table keeping track of your mounted systems

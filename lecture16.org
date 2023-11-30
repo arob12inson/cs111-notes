@@ -1,0 +1,124 @@
+#+title: Lecture16 Distributed Systems, RPC, NFS, RAID
+
+* RPC: Remote Procedure Calls
+- From Client's POV, RPCs act exactly like normal system calls
+- Server handles the write, sends info over network
+  - file handler
+  - buffer contents
+  - size
+- Server has file server Daemon doing this
+- Note: read is short request long response, write is opposite
+* RPC differenes from ordinary call/syscall
+- Caller and callee don't share address space: ISOLATED
+  - Safer, but slower
+  - Pointers won't work accross machines
+- caller + callee may disagree about representations
+  - everything but bytes won't work accross machines
+** Solving representation problems: Network byte order representation
+- have an agreed format to send over, client/server will decode the format to
+- typically big endian
+- Marshalling: convert internal representation to network byte address
+- Unmarshalling: convert network byte address to internal representation
+*** Performance implications:
+- Marshalling
+- copying
+- network **latency**/throuhgput limits
+  - latency is limited by the speed of light, long time to get response
+*** Addressing latency Limits
+- Pipelining: send request 2 before response 1 comes back
+- Multiplexing: send requests without care for order they come back (let server optimize it)
+- Better performance, more complex
+- Problem: dependencies, response i MUST return before response j
+- Problem: Partial successes/partial failures from user POV (i.e. write 2 works, write 1 didn't work)
+  - with RPC's implementation, write 2 and write 1 will be called by the "write" wrapper
+** Caching
+- Improves latency, takes RAM
+- Cache consistency
+- Prefetching: Kernel guesses what your future requests are (unused ram is waster ram)
+* NFS Network File System
+- Protocol for sharing files
+- [ ] Stubs
+- File handlers: complex file descriptors for the network
+  - complexity added by # of clients & processes
+  - Complexity b/c they need to survive client AND server crashes
+  - specifies file without reference to the server
+** Stateless server
+- Idea: server's state in ram can be lost without losing user data
+** Accessing a file
+- device + Inode:
+  - file server needs a quick way to access a file given the Inode number
+  - Lets you change file even if another process changes the file name
+** NFS v3 protocol
+- looks similar to Unix syscalls
+- LOOKUP(dirfh, name) file handle for directory, then file name component
+  - On success: response is file handle + attributes of the file (metadata)
+    - Less orthogonal, more complex to include attributes, but IMPROVES LATENCY
+- CREATE(dirfh, name, attr)
+  - on success: (fh, attr)
+- MKDIR(dirfh, name, attr)
+- REMOVE(dirfh, name) -> status
+- RMDIR(dirfh, name) -> status
+- READ(fh, offset, size) -> data
+  - you need to keep track of offset yourself,
+*** Problem:
+#+begin_src c
+// Temporary file
+fd = open ("f", O_RDONLY);
+unlink("f");
+read(fd, buf, 512);
+
+#+end_src
+- valid in local, because there is RAM saying someone still has file open
+- Server (by stateless design) can't store this info on RAM
+- Solution:
+  - Client keeps track fo NFS files open on client but would have a link count of 0
+    - server doesn't unlink the file, renames it to .nfs192631
+      - when you close the file, removes .nfs192631
+  - Only works if everyone is on the same client
+    - ex: 2 different clients unlink a file with 2 link count
+- Soution 2: stale file handle
+  - trying to read from a file handle someone else has removed will return an error
+** NFS Problems
+- Syncrhonization: NFS does NOT guarentee write-to-read consistency
+  - Network: 2 clients, 1 reads & 1 writes at same time, reader could get old data & writer sees its write complete
+  - Caching: after buffering many writes, client thinks it's written over network but hasn't yet
+    - changes nto reflected on the server yet
+- Solutions to write-to-read consistency
+  - fsync(fd): flush all caches, wait for response
+    - problem: programmers have to modify programs
+  - Support close-to-open consistency
+    - Definition: if close file, next open will see all your changes
+    - close become expensive, close can fail
+** TODO NFS reliability & performance
+- NFS server
+  - Multiple nodes, multiple connections to network,
+    - Highly Available (HA) design, keep running with no data loss if any single HW component fails
+      - use RAID for disks
+  - fiber channel connected to the disks
+*** TODO NFS Spec storage solution benchmark
+- genomics: one file access for:
+  - AI
+  - swbuilds
+- NetApp 8-node AFF A900
+- 2 TiB  ECC RAM
+- 128 GiB NVRAM
+- 50x 100GiB Ethernet connections to talk to network and fiber channel
+- 96x 2TB NVME drives
+- Performance graph (builds in parallel) is a knee shaped graph, you want max capacity to reach the knee
+* RAID
+- RAID offers reliability through media failures
+- Redundant Arrays of Independent Drives/Inexpensive Disks
+- Raid 0:
+  - Concatenation: Mutliple small drives represent a bigger drives
+    - Drive 1 has data A, Drive 2 has data B, drive 3 has data C
+  - striping: performance benefits, store data accross each disk
+    - Drive 1 has data A1, B1, C1, Drive 2 has data A2...
+    - Temporal localility -> faster Sequential access
+    - Issue 1: bad with random access, could lose parallel ability
+    - issue 2: if you want to grow, adding a drive gets hairy (A1 A2 A3 ___ )
+- RAID 1: copies of each drive
+  - write: write to both drives (in parallel)
+  - read: can read from either drive
+  - Drive Failure: have to rewrite data into replacement drive
+    - Users see bad performance when drives are doing replacement
+  - You can nest different drives:
